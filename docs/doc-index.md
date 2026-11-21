@@ -2,16 +2,11 @@
 
 Alphabetical index of topics for this project.
 Each entry references the relevant doc file and section number (never a page number).
-Add project-specific entries as the project grows.
 
 ---
 
 **A**
 
-**API keys (required)** -- api-keys.md §1
-**API keys (optional)** -- api-keys.md §2
-**Agents, adding** -- adding-agents.md §2
-**Agent inventory** -- adding-agents.md §1
 **Architecture overview** -- architecture.md §1
 
 **C**
@@ -23,28 +18,26 @@ Add project-specific entries as the project grows.
 
 **D**
 
-**Data flow** -- architecture.md §3
+**Data flow** -- architecture.md §4
 **Data handled (privacy)** -- privacy-and-security.md §1
-**Dependencies** -- architecture.md §4
+**Dependencies** -- architecture.md §6
 
 **E**
 
-**Environment modes** -- running.md §3
 **Extension points** -- customizing.md §2
+
+**F**
+
+**Fingerprinting, project** -- architecture.md §4
 
 **G**
 
 **Getting help** -- troubleshooting.md §3
-**Git remotes, adding** -- (see project-bootstrap docs/adding-remotes.md)
 
 **I**
 
 **Install, prerequisites** -- install.md §1
 **Install, setup steps** -- install.md §2
-
-**K**
-
-**Key rotation** -- api-keys.md §3
 
 **L**
 
@@ -67,6 +60,7 @@ Add project-specific entries as the project grows.
 
 **Secret management** -- privacy-and-security.md §2
 **Security** -- privacy-and-security.md
+**Scoring, complexity** -- architecture.md §5
 
 **T**
 

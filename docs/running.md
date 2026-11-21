@@ -2,31 +2,26 @@
 
 ## 1. Quick start
 
-*The single command that gets the project running from a clean terminal.*
+After install, `claude` just works. The wrapper is transparent -- every session start automatically picks the right model based on the project and prints a one-line advisory:
 
-```bash
-source .venv/bin/activate && bash run.sh
+```
+[auto-brain] Starting with sonnet (project-fingerprint (data science packages (numpy, pandas)))
 ```
 
-*Update the command above if this project starts differently.*
-
 ## 2. Common tasks
-
-*The commands a developer reaches for every day. Keep this table current.*
 
 | Task | Command |
 |------|---------|
 | Run tests | `bash test.sh` |
-| Lint | (e.g. `ruff check .`) |
-| Format | (e.g. `ruff format .`) |
-| Build | (e.g. `python build.py`) |
-| Deploy | (e.g. `fly deploy`) |
+| Run tests with output | `PYTHONPATH=src python -m unittest discover -s tests -v` |
+| Check current config | `PYTHONPATH=src python -m auto_brain.advisor status` |
+| Score a prompt | `echo "your prompt" \| PYTHONPATH=src python -m auto_brain.advisor classify` |
+| Disable auto-brain | `PYTHONPATH=src python -m auto_brain.advisor toggle off` |
+| Re-enable | `PYTHONPATH=src python -m auto_brain.advisor toggle on` |
+| Bypass for one session | `SMARTMODEL_DISABLE=1 claude` |
 
 ## 3. Environment modes
 
-*Describe differences between dev, staging, and production if they exist. If this project has no staging environment, say so.*
+This project has no staging or production deployment. It runs identically on every machine after `install.sh`. Config is per-user (`~/.claude/smartmodel/config.json`) and per-project (`.claude/smartmodel.json`).
 
-- **Dev:** Uses `.env` locally. Hot-reload on if applicable.
-- **Staging:** (describe differences -- e.g. points to staging database, uses test API keys)
-- **Prod:** (describe differences -- e.g. `ENV=production` disables debug output)
-- If no modes: This project runs the same way in all environments.
+The only runtime distinction is `SMARTMODEL_DISABLE=1`, which bypasses auto-brain for a single session without changing any config.

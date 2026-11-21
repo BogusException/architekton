@@ -1,29 +1,36 @@
 # Install
 
-*Bootstrap already ran. This doc covers re-setup after a fresh clone, or onboarding a new contributor.*
+*This doc covers initial setup and re-setup after a fresh clone.*
 
 ## 1. Prerequisites
 
-*List anything beyond what the bootstrap scaffold provides (Python venv, git repo, etc.).*
+- Python 3.9+
+- Claude Code installed and on your `PATH` (the real `claude` binary, not the wrapper)
+- `jq` -- used by `install.sh` to edit `~/.claude/settings.json`
+- `~/bin` on your `PATH` before the system `claude` binary (the installer places the wrapper there)
 
-- (example) Python 3.11+
-- (example) PostgreSQL 15 running locally
-- (example) A valid `.env` -- copy `.env.example` and fill in real values
+Verify PATH order: `which claude` should resolve to `~/bin/claude` after install. If it doesn't, add `export PATH="$HOME/bin:$PATH"` to your shell profile.
 
 ## 2. Setup
 
-*Step-by-step from clone to running. Number every step so contributors can follow along.*
+1. Clone the repo: `git clone <repo-url> && cd auto-brain`
+2. Create the venv: `python -m venv .venv && source .venv/bin/activate`
+3. Install development dependencies: `pip install -r requirements.txt`
+4. Run the installer: `bash install.sh`
 
-1. Clone the repo: `git clone <repo-url> && cd <project>`
-2. Create and activate the venv: `python -m venv .venv && source .venv/bin/activate`
-3. Install dependencies: `pip install -r requirements.txt`
-4. Copy env file: `cp .env.example .env` and fill in required keys (see `docs/api-keys.md`)
-5. (Add any project-specific steps here)
+The installer is idempotent. Running it again on an already-installed system is safe -- it skips steps that are already in place.
 
 ## 3. Verifying the install
 
-*How does a contributor confirm everything is working before they write a line of code?*
+```bash
+# Confirm the wrapper is in place
+which claude   # should show ~/bin/claude
 
-- Run the test suite: `bash test.sh` -- all tests should pass
-- (example) Hit the health endpoint: `curl http://localhost:8000/health`
-- (example) Run a smoke test: `python main.py --dry-run`
+# Check current config and detected model
+PYTHONPATH=src python -m auto_brain.advisor status
+
+# Run the full test suite
+bash test.sh   # all 37 tests should pass
+```
+
+If `advisor status` prints `state: enabled` and a model source, the install succeeded.

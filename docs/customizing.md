@@ -2,22 +2,30 @@
 
 ## 1. Configuration
 
-*Describe each `.env` variable and what effect changing it has. Copy variable names exactly from `.env.example`.*
+Config files are JSON. The global file is `~/.claude/smartmodel/config.json`; project overrides go in `.claude/smartmodel.json` at the project root. Project keys win over global keys. See `config/global-default.json` and `config/project-default.json` for templates.
 
-| Variable | Default | Effect |
-|----------|---------|--------|
-| (example) `LOG_LEVEL` | `INFO` | Sets verbosity: DEBUG, INFO, WARNING, ERROR |
+| Key | Default | Effect |
+|-----|---------|--------|
+| `enabled` | `true` | Set `false` to disable auto-brain globally without uninstalling |
+| `mode` | `"auto"` | `"auto"` selects model at session start; `"advisory"` only warns mid-session |
+| `default_model` | `"sonnet"` | Model used when no fingerprint matches and no higher-priority config is set |
+| `models.haiku` | `"haiku"` | Alias or full model ID to use for the haiku tier |
+| `models.sonnet` | `"sonnet"` | Alias or full model ID to use for the sonnet tier |
+| `models.opus` | `"opus"` | Alias or full model ID to use for the opus tier |
+| `thresholds.light` | `0.30` | Complexity score at or below this resolves to haiku |
+| `thresholds.heavy` | `0.65` | Complexity score at or above this resolves to opus |
+
+**Environment override:** Set `SMARTMODEL_DISABLE=1` to bypass auto-brain for one session without touching config.
 
 ## 2. Extension points
 
-*Where should a developer add new features? Name the files or modules to touch and the pattern to follow.*
-
-- To add a new command: (e.g. add a function to `main.py` and register it in ...)
-- To add a new output format: (e.g. subclass `BaseExporter` in `exporters/`)
+- **To add a new fingerprint rule:** edit `src/auto_brain/fingerprint.py`. Add a new block in `detect()` before the `return {"tier": None, ...}` line. Follow the existing pattern: read a file, check a condition, return early with a tier and reason string.
+- **To add a new complexity signal:** edit `src/auto_brain/classifier.py`. Add a pattern to `HEAVY_PATTERNS` or `LIGHT_PATTERNS`. Each distinct match adds or subtracts `SIGNAL_WEIGHT` (0.12) from the score.
+- **To add a new CLI subcommand:** add a `run_*` function and register it in `build_parser()` in `src/auto_brain/advisor.py`.
 
 ## 3. Changing default behaviour
 
-*List any flags, environment variables, or config files that alter how the project runs beyond what is in section 1.*
-
-- (example) Pass `--dry-run` to skip writes and log actions only.
-- (example) Set `FEATURE_X=true` in `.env` to enable the experimental pipeline.
+- **Force a specific model for a project:** add `"default_model": "opus"` to `.claude/smartmodel.json` in that project root.
+- **Use a pinned model ID instead of an alias:** set `"models": {"opus": "claude-opus-4-7"}` in global config to map the tier to a specific model version.
+- **Raise the threshold for Opus:** increase `thresholds.heavy` above `0.65` to require higher complexity before recommending Opus.
+- **Switch to advisory-only mode:** set `"mode": "advisory"` to disable automatic model selection at session start while keeping the mid-session warn hook active.

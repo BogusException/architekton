@@ -2,31 +2,28 @@
 
 ## 1. Data handled
 
-*Describe what personal or sensitive data this project processes, stores, or transmits. If none, say so explicitly.*
+auto-brain reads project files at session start (`.mkproj`, `requirements.txt`, `CLAUDE.md`) to fingerprint the project type. It reads prompt text to score complexity. Neither is stored or transmitted.
 
-- (example) Email addresses collected during signup -- stored in the database, never logged.
-- (example) No personal data handled by this project.
+Phase 3 will add a local cost journal at `~/.claude/smartmodel/cost-journal.jsonl`. This file will contain session metadata: date, project path, model used, and prompt counts. It never leaves the local machine.
+
+No personal data. No network calls. No external services.
 
 ## 2. Secret management
 
-*Which `.env` keys are sensitive, how often they rotate, and what the never-commit rules are.*
+auto-brain requires no API keys and uses no `.env` file. The project's `.env.example` is a placeholder from the bootstrap scaffold and can be ignored.
 
-- Sensitive keys: (list them -- e.g. `DATABASE_URL`, `STRIPE_SECRET_KEY`)
-- Rotation policy: (e.g. rotate every 90 days or on team member departure)
-- Rule: never commit `.env` to git. If a secret is exposed, revoke it immediately and create a new one.
+The only file that could contain sensitive data is `~/.claude/smartmodel/cost-journal.jsonl` (Phase 3), which records project paths. That file is local only and git-ignored.
 
 ## 3. Access controls
 
-*Who or what can access this system, and how is that access managed.*
+auto-brain runs as the local user. It reads and writes files only in:
+- `~/.claude/smartmodel/` (global config and future cost journal)
+- `.claude/smartmodel.json` in the project root (project config, if present)
 
-- (example) Admin panel requires a valid session token.
-- (example) API endpoints are public except `/admin/*` which requires `ADMIN_TOKEN` header.
-- (example) Production database access is restricted to the deploy server by firewall rule.
+The installer modifies `~/.claude/settings.json` to register the warn hook. No other system files are touched.
 
 ## 4. Claude Code boundaries
 
-*Any project-specific restrictions on what Claude Code can do beyond the defaults in `.claude/settings.json`.*
-
-- (example) Claude must not read or write files in `data/private/`.
-- (example) Claude must not call external APIs without explicit user instruction.
-- If none, write: No additional restrictions beyond defaults.
+- Claude must not read or write `~/.claude/smartmodel/cost-journal.jsonl` directly (Phase 3 will own that through `journal.py`).
+- Claude must not modify `~/.claude/settings.json` hooks except through `install.sh`.
+- No additional restrictions beyond defaults in `.claude/settings.json`.
