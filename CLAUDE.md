@@ -1,5 +1,19 @@
 # CLAUDE.md
 
+## Project: auto-brain
+
+auto-brain is a model-level advisor and cost governor for Claude Code. It automatically selects the right Claude model (Opus / Sonnet / Haiku) at session start based on project type and prompt complexity, injects mid-session mismatch warnings via a `UserPromptSubmit` hook, and tracks per-project spend in a cost journal.
+
+**Design origin:** `responses/origin-20261121130154_smartmodel-design.txt`
+**Architecture:** `docs/architecture.md`
+**Task list:** `tasks/todo.md`
+
+The core constraint: Claude Code has no mid-session model switching API. All automatic selection happens at session start via a wrapper at `~/bin/claude`. Mid-session behavior is advisory only.
+
+Language: Python 3 (stdlib only -- no third-party packages in the hot path). Shell hooks in bash. No network calls during classification.
+
+---
+
 This file is the shared source of project directives for Claude Code and Codex.
 
 ## Response format (required on every response -- no exceptions)
