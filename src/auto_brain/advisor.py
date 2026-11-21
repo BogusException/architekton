@@ -5,7 +5,7 @@ import json
 import os
 import sys
 
-from auto_brain import classifier, config
+from auto_brain import classifier, config, fingerprint
 
 
 def run_classify(args):
@@ -20,6 +20,11 @@ def run_session_start(args):
     if not config.is_enabled(cfg) or cfg["mode"] == "advisory":
         return 0
     model, source = config.resolve_model()
+    if source == "built-in default":
+        fp = fingerprint.detect()
+        if fp["tier"] is not None:
+            model = cfg["models"][fp["tier"]]
+            source = f"project-fingerprint ({fp['reason']})"
     print(f"{model}\t{source}")
     return 0
 

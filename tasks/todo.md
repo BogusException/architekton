@@ -18,8 +18,8 @@
 - [x] `tests/test_classifier.py` -- unit tests for complexity scoring
 
 ### Phase 2 -- project fingerprinting
-- [ ] `src/auto_brain/fingerprint.py` -- reads .mkproj, CLAUDE.md, requirements.txt, biases model
-- [ ] Update `advisor.py session-start` to call fingerprint before recommending
+- [x] `src/auto_brain/fingerprint.py` -- reads .mkproj, CLAUDE.md, requirements.txt, biases model
+- [x] Update `advisor.py session-start` to call fingerprint before recommending
 
 ### Phase 3 -- cost journal + reporting
 - [ ] `src/auto_brain/journal.py` -- appends session stats to ~/.claude/smartmodel/cost-journal.jsonl
