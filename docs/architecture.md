@@ -58,9 +58,9 @@ each user prompt
       |
 smartmodel-warn.sh (UserPromptSubmit hook)
       |
-      +-- read prompt from stdin JSON (first 800 chars)
+      +-- advisor.py warn parses the hook JSON from stdin (prompt field)
       +-- classifier.py classify -> {score, tier, recommended_model}
-      +-- read $CLAUDE_MODEL env var (current session model)
+      +-- current model: $AUTO_BRAIN_MODEL (set by the wrapper), else $CLAUDE_MODEL
       |
       +-- if mismatch:
       |     additionalContext = "[auto-brain] Complexity suggests <model>
@@ -82,18 +82,21 @@ Stop hook
 
 ## 5. Complexity scoring
 
-Score range 0.0 -- 1.0. Computed in under 50ms with no network calls.
+Score range 0.0 -- 1.0, starting from a base of 0.5. Computed in under 50ms with no network calls.
+Score maps to a tier with `thresholds` from config: `>= heavy` (0.65) is Opus, `<= light` (0.30) is Haiku, else Sonnet.
 
 | Input signal | Weight |
 |---|---|
-| Prompt token estimate > 400t | +0.15 per doubling |
+| Prompt token estimate > 400t (chars / 4) | +0.15 per doubling, capped at +0.30 |
 | Prompt token estimate < 80t | -0.15 |
-| Heavy-signal pattern match (per hit) | +0.12 |
-| Light-signal pattern match (per hit) | -0.12 |
+| Heavy-signal pattern match (per distinct pattern) | +0.12 |
+| Light-signal pattern match (per distinct pattern) | -0.12 |
 
 Heavy signals: `architect`, `design`, `refactor`, `restructure`, `review`, `audit`, `debug`, `investigate`, `root cause`, `all files`, `across the codebase`, `multi-file`, `security`, `exploit`.
 
 Light signals: `rename`, `typo`, `fix spelling`, `add comment`, `format`, `what is`, `show me`, `list`, `git status`, `run tests`, `single file`, `one line`, `commit message`.
+
+Length uses the whole prompt. Signal patterns scan only the first 800 characters, so pasted logs do not trigger them.
 
 Complexity momentum: if the last `momentum_window` prompts averaged >= heavy threshold, hold at the heavy recommendation for the current prompt even if it scores lower.
 
@@ -102,7 +105,7 @@ Complexity momentum: if the last `momentum_window` prompts averaged >= heavy thr
 | Dependency | Type | Purpose |
 |---|---|---|
 | Python 3.9+ stdlib only | local | advisor, classifier, fingerprint, journal, config |
-| `jq` | system CLI | hook scripts read JSON from Claude Code |
+| `jq` | system CLI | `install.sh` edits `~/.claude/settings.json` |
 | `claude` binary | system CLI | the real Claude Code binary the wrapper calls |
 
 No third-party Python packages. No network calls in the hot path.

@@ -7,15 +7,15 @@
 ## Backlog
 
 ### Phase 1 -- core (required for basic functionality)
-- [ ] `src/auto_brain/config.py` -- load/merge global + project config, priority order
-- [ ] `src/auto_brain/classifier.py` -- heuristic complexity scorer (no LLM calls)
-- [ ] `src/auto_brain/advisor.py` -- CLI: classify, session-start, toggle, status
-- [ ] `src/auto_brain/hooks/claude-wrapper.sh` -- session-start model selector wrapper
-- [ ] `src/auto_brain/hooks/smartmodel-warn.sh` -- UserPromptSubmit hook (mismatch advisory)
-- [ ] `config/global-default.json` -- template for `~/.claude/smartmodel/config.json`
-- [ ] `config/project-default.json` -- template for `.claude/smartmodel.json`
-- [ ] `install.sh` -- copies wrapper to ~/bin/claude, registers hook, writes global config
-- [ ] `tests/test_classifier.py` -- unit tests for complexity scoring
+- [x] `src/auto_brain/config.py` -- load/merge global + project config, priority order
+- [x] `src/auto_brain/classifier.py` -- heuristic complexity scorer (no LLM calls)
+- [x] `src/auto_brain/advisor.py` -- CLI: classify, session-start, toggle, status
+- [x] `src/auto_brain/hooks/claude-wrapper.sh` -- session-start model selector wrapper
+- [x] `src/auto_brain/hooks/smartmodel-warn.sh` -- UserPromptSubmit hook (mismatch advisory)
+- [x] `config/global-default.json` -- template for `~/.claude/smartmodel/config.json`
+- [x] `config/project-default.json` -- template for `.claude/smartmodel.json`
+- [x] `install.sh` -- copies wrapper to ~/bin/claude, registers hook, writes global config
+- [x] `tests/test_classifier.py` -- unit tests for complexity scoring
 
 ### Phase 2 -- project fingerprinting
 - [ ] `src/auto_brain/fingerprint.py` -- reads .mkproj, CLAUDE.md, requirements.txt, biases model

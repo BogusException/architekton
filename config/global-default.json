@@ -1,0 +1,14 @@
+{
+  "enabled": true,
+  "mode": "auto",
+  "default_model": "sonnet",
+  "models": {
+    "haiku": "haiku",
+    "sonnet": "sonnet",
+    "opus": "opus"
+  },
+  "thresholds": {
+    "light": 0.30,
+    "heavy": 0.65
+  }
+}
