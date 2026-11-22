@@ -10,6 +10,11 @@ DEFAULTS = {
     "default_model": "sonnet",
     "models": {"haiku": "haiku", "sonnet": "sonnet", "opus": "opus"},
     "thresholds": {"light": 0.30, "heavy": 0.65},
+    "pricing": {
+        "opus":   {"input_per_1m": 15.00, "output_per_1m": 75.00},
+        "sonnet": {"input_per_1m":  3.00, "output_per_1m": 15.00},
+        "haiku":  {"input_per_1m":  0.80, "output_per_1m":  4.00},
+    },
 }
 VALID_MODES = ("auto", "advisory")
 

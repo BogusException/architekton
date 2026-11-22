@@ -1,11 +1,11 @@
-"""auto-brain CLI: classify, session-start, toggle, status, warn."""
+"""auto-brain CLI: classify, session-start, toggle, status, warn, session-end, report."""
 
 import argparse
 import json
 import os
 import sys
 
-from auto_brain import classifier, config, fingerprint
+from auto_brain import classifier, config, fingerprint, journal
 
 
 def run_classify(args):
@@ -53,6 +53,26 @@ def run_status(args):
     return 0
 
 
+def run_session_end(args):
+    """Stop hook: count turns from transcript, append a journal entry."""
+    try:
+        payload = json.load(sys.stdin)
+        transcript_path = payload.get("transcript_path", "")
+        turns = journal._count_turns(transcript_path) if transcript_path else 0
+        model = args.model or os.environ.get("AUTO_BRAIN_MODEL") or os.environ.get("CLAUDE_MODEL") or "sonnet"
+        journal.session_end(model, turns)
+    except Exception as error:
+        print(f"auto-brain journal: {error}", file=sys.stderr)
+    return 0
+
+
+def run_report(args):
+    cfg = config.load()
+    pricing = cfg.get("pricing")
+    print(journal.report(days=args.days, pricing=pricing))
+    return 0
+
+
 def run_warn(args):
     """UserPromptSubmit hook. Never blocks a prompt: any failure prints nothing."""
     try:
@@ -95,6 +115,15 @@ def build_parser():
 
     warn = commands.add_parser("warn", help="UserPromptSubmit hook entry point (JSON on stdin)")
     warn.set_defaults(run=run_warn)
+
+    session_end = commands.add_parser("session-end", help="Stop hook: append session stats to cost journal (JSON on stdin)")
+    session_end.add_argument("--model", default=None, help="override model (default: $AUTO_BRAIN_MODEL or $CLAUDE_MODEL)")
+    session_end.set_defaults(run=run_session_end)
+
+    rep = commands.add_parser("report", help="print spend report from the cost journal")
+    rep.add_argument("--days", type=int, default=None, metavar="N", help="limit to last N days (default: all time)")
+    rep.set_defaults(run=run_report)
+
     return parser
 
 

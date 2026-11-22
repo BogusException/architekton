@@ -9,6 +9,7 @@ BRAIN_HOME="$CLAUDE_DIR/smartmodel"
 BIN_DIR="${AUTO_BRAIN_BIN_DIR:-$HOME/bin}"
 WRAPPER="$BIN_DIR/claude"
 HOOK="$BRAIN_HOME/lib/auto_brain/hooks/smartmodel-warn.sh"
+JOURNAL_HOOK="$BRAIN_HOME/lib/auto_brain/hooks/cost-journal.sh"
 SETTINGS="$CLAUDE_DIR/settings.json"
 MARKER="# auto-brain-wrapper"
 
@@ -86,7 +87,20 @@ else
   printf '%s\n' "$updated" >"$SETTINGS"
 fi
 
-echo "installed. wrapper: $WRAPPER, hook: $HOOK"
+# 6. Register the Stop hook (cost journal).
+chmod +x "$JOURNAL_HOOK"
+if jq -e --arg command "$JOURNAL_HOOK" 'any(.hooks.Stop[]?.hooks[]?; .command == $command)' "$SETTINGS" >/dev/null 2>&1; then
+  echo "journal hook already registered in $SETTINGS"
+else
+  backup_file "$SETTINGS"
+  updated="$(jq --arg command "$JOURNAL_HOOK" '
+    .hooks //= {} | .hooks.Stop //= []
+    | .hooks.Stop += [{"hooks": [{"type": "command", "command": $command, "timeout": 15}]}]
+  ' "$SETTINGS")"
+  printf '%s\n' "$updated" >"$SETTINGS"
+fi
+
+echo "installed. wrapper: $WRAPPER, hook: $HOOK, journal: $JOURNAL_HOOK"
 if [[ "$(command -v claude || true)" != "$WRAPPER" ]]; then
   echo "warning: 'claude' on PATH is not $WRAPPER. Put $BIN_DIR before the real claude in PATH." >&2
 fi

@@ -22,10 +22,10 @@
 - [x] Update `advisor.py session-start` to call fingerprint before recommending
 
 ### Phase 3 -- cost journal + reporting
-- [ ] `src/auto_brain/journal.py` -- appends session stats to ~/.claude/smartmodel/cost-journal.jsonl
-- [ ] Stop hook integration -- calls journal.py at session end
-- [ ] `advisor.py report [--days N]` -- reads journal, prints model mix + estimated cost per project
-- [ ] Pricing table in `config/global-default.json` (input/output $/1M tokens per model)
+- [x] `src/auto_brain/journal.py` -- appends session stats to ~/.claude/smartmodel/cost-journal.jsonl
+- [x] Stop hook integration -- calls journal.py at session end
+- [x] `advisor.py report [--days N]` -- reads journal, prints model mix + estimated cost per project
+- [x] Pricing table in `config/global-default.json` (input/output $/1M tokens per model)
 
 ### Phase 4 -- advanced features
 - [ ] Complexity momentum -- session state file, last N prompt scores
