@@ -64,6 +64,44 @@ _STATUS_STYLE = {
 _KNOWN_FAMILIES = {"haiku", "sonnet", "opus"}
 _DEFAULT_THINKING_MAP = {"haiku": "low", "sonnet": "med", "opus": "high"}
 
+_VALID_THINKING = frozenset({"low", "med", "high", "ext"})
+
+_THINKING_ALIASES = {
+    "medium":   "med",
+    "normal":   "med",
+    "moderate": "med",
+    "minimal":  "low",
+    "minimum":  "low",
+    "extreme":  "ext",
+    "max":      "ext",
+    "maximum":  "ext",
+    "extended": "ext",
+    "ultra":    "ext",
+}
+
+
+def _normalize_thinking(label):
+    """Normalize a thinking effort label to a known value.
+
+    Returns (normalized_label, warning_or_None).
+    Empty input passes through without warning (means 'derive from model').
+    Valid labels pass through unchanged. Aliases are silently corrected.
+    Unknown labels pass through with a warning so the display still works.
+    """
+    if not label:
+        return label, None
+    low = label.lower()
+    if low in _VALID_THINKING:
+        return low, None
+    if low in _THINKING_ALIASES:
+        normalized = _THINKING_ALIASES[low]
+        return normalized, f"thinking level '{label}' normalized to '{normalized}'"
+    return label, (
+        f"unknown thinking level '{label}'; "
+        f"valid values: {', '.join(sorted(_VALID_THINKING))}. "
+        f"Common aliases: medium=med, extreme/max=ext."
+    )
+
 
 def _model_display(model_str):
     """Convert a model string to a short 'family version' display form.
@@ -92,7 +130,11 @@ def _model_display(model_str):
 def _resolve_thinking(task, thinking_map=None):
     """Return the thinking effort label (uses task.thinking if set, else derives from model)."""
     if task.thinking:
-        return task.thinking
+        normalized, warning = _normalize_thinking(task.thinking)
+        if warning:
+            print(f"[auto-brain] {warning}", file=sys.stderr)
+        if normalized:
+            return normalized
     tmap = thinking_map or _DEFAULT_THINKING_MAP
     s = task.model.lower()
     for family, effort in tmap.items():

@@ -97,19 +97,48 @@ def run_warn(args):
     return 0
 
 
+_RUN_DESCRIPTION = (
+    "Decompose a goal into tasks using an orchestrator model, then execute "
+    "them in parallel with worker models and a live status display."
+)
+_RUN_EPILOG = """\
+Model aliases:  haiku, sonnet, opus
+Full model IDs: claude-opus-4-7, claude-haiku-4-5-20251001, etc.
+Unknown model values emit a warning at startup and will cause workers to fail
+if the model is unavailable.
+
+Thinking effort levels:
+  low   routine mechanical work         (haiku default)
+  med   moderate analysis               (sonnet default)
+  high  deep reasoning required         (opus default)
+  ext   maximum effort, use sparingly
+
+Common aliases are accepted in config (medium -> med, extreme/max -> ext) but
+canonical labels are preferred. Unknown labels emit a warning and pass through.
+
+Config files (project overrides global):
+  global:  ~/.claude/smartmodel/config.json
+  project: .claude/smartmodel.json
+
+Full config reference: docs/customizing.md, section 1
+"""
+
+
 def run_job(args):
     cfg = config.load()
     job_cfg = cfg.get("job", {})
-    omodel = job_cfg.get("orchestrator_model", "opus")
-    wmodel = job_cfg.get("worker_model", "haiku")
-    max_parallel = job_cfg.get("max_parallel", 4)
-    wtimeout = job_cfg.get("worker_timeout", 300)
-    wturns = job_cfg.get("worker_max_turns", 20)
-    preamble = job_cfg.get("orchestrator_preamble", "")
+    # CLI flags override config when explicitly provided (not None)
+    omodel       = getattr(args, "orchestrator_model", None) or job_cfg.get("orchestrator_model", "opus")
+    wmodel       = getattr(args, "worker_model", None) or job_cfg.get("worker_model", "haiku")
+    max_parallel = getattr(args, "max_parallel", None) or job_cfg.get("max_parallel", 4)
+    wtimeout     = getattr(args, "timeout", None) or job_cfg.get("worker_timeout", 300)
+    wturns       = job_cfg.get("worker_max_turns", 20)
+    preamble     = job_cfg.get("orchestrator_preamble", "")
     thinking_map = job_cfg.get("thinking_map", {})
-    wthinking = job_cfg.get("worker_thinking", "")
-    description = " ".join(args.job)
-    real_claude = orchestrator._find_real_claude()
+    # CLI --thinking overrides config worker_thinking
+    wthinking    = getattr(args, "thinking", None) or job_cfg.get("worker_thinking", "")
+    description  = " ".join(args.job)
+    real_claude  = orchestrator._find_real_claude()
 
     print(f"[auto-brain] Planning with {omodel}...", file=sys.stderr)
     try:
@@ -185,8 +214,38 @@ def build_parser():
     rep.add_argument("--days", type=int, default=None, metavar="N", help="limit to last N days (default: all time)")
     rep.set_defaults(run=run_report)
 
-    job = commands.add_parser("run", help="run a multi-agent job (opus plans, haiku workers)")
-    job.add_argument("job", nargs="+", help="job description")
+    job = commands.add_parser(
+        "run",
+        help="run a multi-agent job (orchestrator decomposes, workers execute)",
+        description=_RUN_DESCRIPTION,
+        epilog=_RUN_EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    job.add_argument("job", nargs="+", help="job description (quote or space-separate words)")
+    job.add_argument(
+        "--orchestrator-model", metavar="MODEL", default=None,
+        help="model for the planner (overrides config job.orchestrator_model; default: opus). "
+             "Accepts alias (haiku/sonnet/opus) or full model ID.",
+    )
+    job.add_argument(
+        "--worker-model", metavar="MODEL", default=None,
+        help="default model for workers when orchestrator does not assign one "
+             "(overrides config job.worker_model; default: haiku)",
+    )
+    job.add_argument(
+        "--max-parallel", metavar="N", type=int, default=None,
+        help="maximum concurrent worker sessions (overrides config job.max_parallel; default: 4)",
+    )
+    job.add_argument(
+        "--timeout", metavar="SEC", type=int, default=None,
+        help="seconds before a worker session is killed (overrides config job.worker_timeout; default: 300)",
+    )
+    job.add_argument(
+        "--thinking", metavar="LEVEL", default=None,
+        choices=["low", "med", "high", "ext"],
+        help="override thinking effort for all workers: low, med, high, ext "
+             "(default: derived from each task's model tier via thinking_map config)",
+    )
     job.set_defaults(run=run_job)
 
     return parser

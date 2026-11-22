@@ -28,6 +28,64 @@ DEFAULTS = {
 }
 VALID_MODES = ("auto", "advisory")
 
+_VALID_THINKING    = frozenset({"low", "med", "high", "ext"})
+_THINKING_ALIASES  = frozenset({"medium", "normal", "moderate", "minimal", "minimum",
+                                 "extreme", "max", "maximum", "extended", "ultra"})
+_KNOWN_MODEL_FAMILIES = frozenset({"haiku", "sonnet", "opus"})
+
+
+def _warn(msg):
+    import sys
+    print(f"[auto-brain config] {msg}", file=sys.stderr)
+
+
+def _looks_like_model(s):
+    """Return True if s looks like a valid Claude model alias or full ID."""
+    low = s.lower()
+    return low in _KNOWN_MODEL_FAMILIES or low.startswith("claude-")
+
+
+def _validate_job_config(job_cfg):
+    """Emit warnings for suspicious values in the job config section. Never raises."""
+    wthinking = job_cfg.get("worker_thinking", "")
+    if wthinking:
+        low = wthinking.lower()
+        if low not in _VALID_THINKING and low not in _THINKING_ALIASES:
+            _warn(
+                f"job.worker_thinking: unknown thinking level '{wthinking}'; "
+                f"valid: low, med, high, ext. Common aliases: medium=med, extreme/max=ext."
+            )
+        elif low in _THINKING_ALIASES:
+            _ALIAS_MAP = {
+                "medium": "med", "normal": "med", "moderate": "med",
+                "minimal": "low", "minimum": "low",
+                "extreme": "ext", "max": "ext", "maximum": "ext", "extended": "ext", "ultra": "ext",
+            }
+            normalized = _ALIAS_MAP.get(low, low)
+            _warn(
+                f"job.worker_thinking: '{wthinking}' is a known alias -- "
+                f"it will be normalized to '{normalized}' at display time. "
+                f"Update config to use the canonical label."
+            )
+
+    for tier, level in job_cfg.get("thinking_map", {}).items():
+        if isinstance(level, str) and level:
+            low = level.lower()
+            if low not in _VALID_THINKING and low not in _THINKING_ALIASES:
+                _warn(
+                    f"job.thinking_map['{tier}']: unknown thinking level '{level}'; "
+                    f"valid: low, med, high, ext"
+                )
+
+    for key in ("orchestrator_model", "worker_model"):
+        val = job_cfg.get(key, "")
+        if isinstance(val, str) and val and not _looks_like_model(val):
+            _warn(
+                f"job.{key}: '{val}' is not a recognized Claude model alias "
+                f"(haiku, sonnet, opus) or full model ID (e.g. claude-opus-4-7). "
+                f"Workers will fail if the model is unavailable."
+            )
+
 
 class ConfigError(Exception):
     pass
@@ -75,6 +133,8 @@ def load(project_dir=None):
                 merged[key] = value
     if merged["mode"] not in VALID_MODES:
         raise ConfigError(f"mode must be one of {VALID_MODES}, got {merged['mode']!r}")
+    if isinstance(merged.get("job"), dict):
+        _validate_job_config(merged["job"])
     return merged
 
 

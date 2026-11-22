@@ -10,6 +10,7 @@ from unittest import mock
 from auto_brain.runner import (
     Status, Task, _ready_tasks, _has_failed_dep, _TUI, _write_output, run,
     _model_display, _resolve_thinking, _time_field,
+    _normalize_thinking, _VALID_THINKING, _THINKING_ALIASES,
 )
 
 
@@ -232,6 +233,14 @@ class ResolveThinkingTest(unittest.TestCase):
         t = Task(id="1", title="T", prompt="p", model="claude-opus-4-7")
         self.assertEqual(_resolve_thinking(t), "high")
 
+    def test_misspelled_thinking_still_resolves(self):
+        t = Task(id="1", title="T", prompt="p", model="haiku", thinking="medium")
+        buf = io.StringIO()
+        with mock.patch("sys.stderr", buf):
+            result = _resolve_thinking(t)
+        self.assertEqual(result, "med")
+        self.assertIn("normalized", buf.getvalue())
+
 
 class TimeFieldTest(unittest.TestCase):
     def test_waiting_shows_dashes(self):
@@ -266,6 +275,65 @@ class TimeFieldTest(unittest.TestCase):
         t.error = "timeout after 300s"
         result = _time_field(t)
         self.assertEqual(result, "TIMEOUT")
+
+
+class NormalizeThinkingTest(unittest.TestCase):
+    def test_empty_string_passthrough(self):
+        result, warning = _normalize_thinking("")
+        self.assertEqual(result, "")
+        self.assertIsNone(warning)
+
+    def test_valid_labels_pass_through(self):
+        for label in ("low", "med", "high", "ext"):
+            result, warning = _normalize_thinking(label)
+            self.assertEqual(result, label)
+            self.assertIsNone(warning)
+
+    def test_uppercase_valid_label_normalized(self):
+        result, warning = _normalize_thinking("HIGH")
+        self.assertEqual(result, "high")
+        self.assertIsNone(warning)
+
+    def test_mixed_case_valid_label(self):
+        result, warning = _normalize_thinking("Med")
+        self.assertEqual(result, "med")
+        self.assertIsNone(warning)
+
+    def test_alias_medium_to_med(self):
+        result, warning = _normalize_thinking("medium")
+        self.assertEqual(result, "med")
+        self.assertIsNotNone(warning)
+        self.assertIn("med", warning)
+
+    def test_alias_extreme_to_ext(self):
+        result, warning = _normalize_thinking("extreme")
+        self.assertEqual(result, "ext")
+        self.assertIsNotNone(warning)
+
+    def test_alias_max_to_ext(self):
+        result, warning = _normalize_thinking("max")
+        self.assertEqual(result, "ext")
+        self.assertIsNotNone(warning)
+
+    def test_alias_case_insensitive(self):
+        result, warning = _normalize_thinking("MEDIUM")
+        self.assertEqual(result, "med")
+
+    def test_unknown_label_passes_through_with_warning(self):
+        result, warning = _normalize_thinking("turbo")
+        self.assertEqual(result, "turbo")
+        self.assertIsNotNone(warning)
+        self.assertIn("valid values", warning)
+
+    def test_unknown_label_warning_lists_valid_values(self):
+        _, warning = _normalize_thinking("gibberish")
+        for v in ("low", "med", "high", "ext"):
+            self.assertIn(v, warning)
+
+    def test_all_aliases_map_to_valid_targets(self):
+        for alias in _THINKING_ALIASES:
+            result, _ = _normalize_thinking(alias)
+            self.assertIn(result, _VALID_THINKING, f"alias '{alias}' maps to invalid '{result}'")
 
 
 if __name__ == "__main__":

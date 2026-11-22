@@ -29,11 +29,47 @@ Config files are JSON. The global file is `~/.claude/smartmodel/config.json`; pr
 | `job.thinking_map` | `{"haiku":"low","sonnet":"med","opus":"high"}` | Maps model tier to the thinking effort label shown in the TUI; modify to change per-tier defaults |
 | `job.worker_thinking` | `""` | Force all workers to a fixed effort label (`"low"`, `"med"`, `"high"`, `"ext"`); empty string derives from model via `thinking_map` |
 
-Thinking effort levels (displayed in the TUI `[eff ]` column):
-- `low` -- routine mechanical work (haiku default)
-- `med` -- moderate analysis (sonnet default)
-- `high` -- deep reasoning (opus default)
-- `ext` -- maximum effort; use sparingly for long-running complex tasks
+### Thinking effort levels
+
+The `[eff ]` column in the TUI and the `thinking` field in job config use these canonical labels:
+
+| Label | Meaning | Model default |
+|-------|---------|---------------|
+| `low` | Routine mechanical work | haiku |
+| `med` | Moderate analysis | sonnet |
+| `high` | Deep reasoning required | opus |
+| `ext` | Maximum effort, use sparingly | (none) |
+
+**Aliases** -- the following are accepted in config and in orchestrator JSON output and normalized at runtime with a warning so you can find and fix them:
+
+| Alias | Resolves to |
+|-------|-------------|
+| `medium`, `normal`, `moderate` | `med` |
+| `minimal`, `minimum` | `low` |
+| `extreme`, `max`, `maximum`, `extended`, `ultra` | `ext` |
+
+Case is ignored (`HIGH`, `Med`, `high` all work). Unknown values pass through with a warning and are displayed as-is.
+
+**Model values** accept either a tier alias (`haiku`, `sonnet`, `opus`) or a full model ID (`claude-opus-4-7`, `claude-haiku-4-5-20251001`). Unrecognized values emit a warning at session start and will cause workers to fail if the model is unavailable.
+
+**One-off overrides without editing config** -- the `run` subcommand accepts CLI flags that take precedence over config for a single job:
+
+```bash
+# Use a different orchestrator for one job
+PYTHONPATH=src python -m auto_brain.advisor run --orchestrator-model sonnet "my goal"
+
+# Override worker model, parallelism, and timeout
+PYTHONPATH=src python -m auto_brain.advisor run \
+  --worker-model sonnet \
+  --max-parallel 2 \
+  --timeout 600 \
+  "build a REST API"
+
+# Force all workers to high thinking effort
+PYTHONPATH=src python -m auto_brain.advisor run --thinking high "audit the codebase"
+```
+
+Run `python -m auto_brain.advisor run --help` for the full flag reference.
 
 **Environment override:** Set `SMARTMODEL_DISABLE=1` to bypass auto-brain for one session without touching config.
 
