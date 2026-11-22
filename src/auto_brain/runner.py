@@ -12,11 +12,11 @@ from pathlib import Path
 
 
 class Status(str, Enum):
-    WAITING = "waiting"
-    RUNNING = "running"
+    WAITING  = "waiting"
+    RUNNING  = "running"
     COMPLETE = "complete"
-    ERROR = "error"
-    SKIPPED = "skipped"
+    ERROR    = "error"
+    SKIPPED  = "skipped"
 
 
 @dataclass
@@ -26,6 +26,8 @@ class Task:
     prompt: str
     model: str = "haiku"
     depends_on: list = field(default_factory=list)
+    thinking: str = field(default="")   # effort label: "low"|"med"|"high"|"ext"|"" (derived from model)
+    timeout: float = field(default=0)   # worker_timeout for display; 0 = no limit shown
     status: Status = field(default=Status.WAITING)
     output: str = field(default="", repr=False)
     error: str = field(default="", repr=False)
@@ -41,13 +43,13 @@ class Task:
 
 
 # ANSI codes
-_R = "\033[0m"
-_BOLD = "\033[1m"
-_DIM = "\033[2m"
-_CYAN = "\033[36m"
-_GREEN = "\033[32m"
-_RED = "\033[31m"
-_YELLOW = "\033[33m"
+_R       = "\033[0m"
+_BOLD    = "\033[1m"
+_DIM     = "\033[2m"
+_CYAN    = "\033[36m"
+_GREEN   = "\033[32m"
+_RED     = "\033[31m"
+_YELLOW  = "\033[33m"
 _CLRLINE = "\033[2K\r"
 _SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
@@ -59,6 +61,59 @@ _STATUS_STYLE = {
     Status.SKIPPED:  ("↷", _YELLOW),
 }
 
+_KNOWN_FAMILIES = {"haiku", "sonnet", "opus"}
+_DEFAULT_THINKING_MAP = {"haiku": "low", "sonnet": "med", "opus": "high"}
+
+
+def _model_display(model_str):
+    """Convert a model string to a short 'family version' display form.
+
+    'haiku'                      -> 'haiku'
+    'claude-opus-4-7'            -> 'opus 4.7'
+    'claude-haiku-4-5-20251001'  -> 'haiku 4.5'
+    """
+    s = model_str.lower()
+    if s.startswith("claude-"):
+        s = s[7:]
+    parts = s.split("-")
+    family = None
+    ver = []
+    for p in parts:
+        if family is None:
+            if p in _KNOWN_FAMILIES:
+                family = p
+        elif p.isdigit() and len(p) <= 3:
+            ver.append(p)
+    if family is None:
+        return model_str[:15]
+    return f"{family} {'.'.join(ver)}" if ver else family
+
+
+def _resolve_thinking(task, thinking_map=None):
+    """Return the thinking effort label (uses task.thinking if set, else derives from model)."""
+    if task.thinking:
+        return task.thinking
+    tmap = thinking_map or _DEFAULT_THINKING_MAP
+    s = task.model.lower()
+    for family, effort in tmap.items():
+        if family in s:
+            return effort
+    return "med"
+
+
+def _time_field(task):
+    """Format elapsed/timeout display for a task row."""
+    if task.status == Status.RUNNING and task.start_time is not None:
+        elapsed = time.monotonic() - task.start_time
+        if task.timeout > 0:
+            return f"{elapsed:.0f}s/{task.timeout:.0f}s"
+        return f"{elapsed:.1f}s"
+    if task.duration is not None:
+        if task.status == Status.ERROR and task.error and "timeout" in task.error.lower():
+            return "TIMEOUT"
+        return f"{task.duration:.1f}s"
+    return "--"
+
 
 def _term_width():
     try:
@@ -68,9 +123,14 @@ def _term_width():
 
 
 class _TUI:
-    def __init__(self, is_tty):
+    # Fixed column widths (chars, excluding ANSI codes):
+    # status(5) + wid(6) + model(17) + thinking(8) + sep(2) + time(10) = 48
+    _FIXED = 48
+
+    def __init__(self, is_tty, thinking_map=None):
         self._is_tty = is_tty
         self._lines = 0
+        self._thinking_map = thinking_map
 
     def render(self, tasks, job_title, omodel, tick):
         w = _term_width()
@@ -82,24 +142,34 @@ class _TUI:
             if counts[s]
         ]
         summary = " · ".join(parts)
+        omodel_disp = _model_display(omodel)
         title_clip = job_title[: max(w - 30, 10)]
         header = [
             sep,
-            f"{_BOLD}auto-brain{_R}  {title_clip}  {omodel} → workers",
-            summary,
+            f"{_BOLD}auto-brain{_R}  \"{title_clip}\"  {omodel_disp} → workers",
             sep,
         ]
+        title_w = max(w - self._FIXED, 15)
         rows = []
-        title_w = max(w - 36, 20)
         for task in tasks:
             icon, color = _STATUS_STYLE[task.status]
             if task.status == Status.RUNNING:
                 icon = _SPINNER[tick % len(_SPINNER)]
-            dur = f"{task.duration:.1f}s" if task.duration is not None else "  --"
+            wid = f"W{task.id}"
+            model_disp = _model_display(task.model)
+            thinking = _resolve_thinking(task, self._thinking_map)
+            time_str = _time_field(task)
+            title_trunc = task.title[:title_w]
             rows.append(
-                f"  {color}{icon}{_R}  {task.id:<3} {task.title[:title_w]:<{title_w}} {task.model[:8]:<8} {dur:>6}"
+                f"  {color}{icon}{_R}  "
+                f"{wid:<4}  "
+                f"{model_disp:<15}  "
+                f"[{thinking:<4}]  "
+                f"{title_trunc:<{title_w}}  "
+                f"{time_str:>10}"
             )
-        all_lines = header + rows + [sep]
+        footer = [sep, summary]
+        all_lines = header + rows + footer
 
         if self._is_tty:
             if self._lines > 0:
@@ -179,14 +249,14 @@ def _write_output(output_dir, task, stdout, stderr):
     out_path = Path(output_dir) / f"{task.id}.txt"
     with out_path.open("w", encoding="utf-8") as f:
         f.write(f"=== task {task.id}: {task.title} ===\n")
-        f.write(f"model: {task.model}  status: {task.status.value}\n\n")
+        f.write(f"model: {task.model}  thinking: {task.thinking or '(derived)'}  status: {task.status.value}\n\n")
         f.write(stdout)
         if stderr.strip():
             f.write(f"\n=== stderr ===\n{stderr}")
 
 
 def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns=20,
-        job_title="", omodel="opus", cwd=None, output_dir=None):
+        job_title="", omodel="opus", cwd=None, output_dir=None, thinking_map=None):
     """Execute a task DAG with parallel workers and a live TUI.
 
     Returns (complete_count, error_count, skipped_count).
@@ -201,7 +271,7 @@ def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     is_tty = sys.stdout.isatty()
-    tui = _TUI(is_tty)
+    tui = _TUI(is_tty, thinking_map=thinking_map)
     shutdown = threading.Event()
     threads = []
     tick = 0

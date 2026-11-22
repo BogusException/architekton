@@ -15,11 +15,23 @@ Rules:
 - Prefer parallelism; use depends_on only when strict ordering is required.
 - Output ONLY a valid JSON array. No prose, no markdown fences.
 
+Model selection guide (default "haiku" unless the task clearly warrants more):
+- "haiku"  -- mechanical tasks: single-file edits, rename, format, grep, generate boilerplate
+- "sonnet" -- moderate tasks: multi-file edits, analysis across a few files, medium-complexity research
+- "opus"   -- complex tasks: test execution, full-codebase reasoning, architectural decisions, synthesis
+
+Thinking effort (optional; omit to let auto-brain derive from model):
+- "low"  -- routine mechanical work         (haiku default)
+- "med"  -- moderate analysis               (sonnet default)
+- "high" -- deep reasoning required         (opus default)
+- "ext"  -- maximum effort, use sparingly   (long-running complex tasks only)
+
 Output schema -- a JSON array of objects:
   id:         string, e.g. "1", "2"
   title:      short label (60 chars max)
   prompt:     full instruction for this agent (fully self-contained)
-  model:      "haiku" | "sonnet" | "opus"  (default "haiku")
+  model:      "haiku" | "sonnet" | "opus"  (see guide above; default "haiku")
+  thinking:   "low" | "med" | "high" | "ext"  (optional; omit to derive from model)
   depends_on: list of id strings that must complete first (default [])
 
 Job: {job_description}
@@ -80,6 +92,7 @@ def _extract_tasks(text, default_model="haiku"):
             "title": str(item.get("title", task_id))[:60],
             "prompt": str(prompt),
             "model": str(item.get("model") or default_model),
+            "thinking": str(item.get("thinking") or ""),
             "depends_on": [str(d) for d in item.get("depends_on") or []],
         })
     return tasks

@@ -22,6 +22,8 @@ DEFAULTS = {
         "worker_timeout":        300,
         "worker_max_turns":      20,
         "orchestrator_preamble": "",
+        "thinking_map":          {"haiku": "low", "sonnet": "med", "opus": "high"},
+        "worker_thinking":       "",
     },
 }
 VALID_MODES = ("auto", "advisory")

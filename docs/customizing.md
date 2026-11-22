@@ -26,6 +26,14 @@ Config files are JSON. The global file is `~/.claude/smartmodel/config.json`; pr
 | `job.worker_timeout` | `300` | Seconds before a worker is killed |
 | `job.worker_max_turns` | `20` | `--max-turns` passed to each worker |
 | `job.orchestrator_preamble` | `""` | Text prepended to the orchestrator prompt; set to `/plan\n` to invoke the native `/plan` skill |
+| `job.thinking_map` | `{"haiku":"low","sonnet":"med","opus":"high"}` | Maps model tier to the thinking effort label shown in the TUI; modify to change per-tier defaults |
+| `job.worker_thinking` | `""` | Force all workers to a fixed effort label (`"low"`, `"med"`, `"high"`, `"ext"`); empty string derives from model via `thinking_map` |
+
+Thinking effort levels (displayed in the TUI `[eff ]` column):
+- `low` -- routine mechanical work (haiku default)
+- `med` -- moderate analysis (sonnet default)
+- `high` -- deep reasoning (opus default)
+- `ext` -- maximum effort; use sparingly for long-running complex tasks
 
 **Environment override:** Set `SMARTMODEL_DISABLE=1` to bypass auto-brain for one session without touching config.
 

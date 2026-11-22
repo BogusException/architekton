@@ -106,6 +106,8 @@ def run_job(args):
     wtimeout = job_cfg.get("worker_timeout", 300)
     wturns = job_cfg.get("worker_max_turns", 20)
     preamble = job_cfg.get("orchestrator_preamble", "")
+    thinking_map = job_cfg.get("thinking_map", {})
+    wthinking = job_cfg.get("worker_thinking", "")
     description = " ".join(args.job)
     real_claude = orchestrator._find_real_claude()
 
@@ -126,6 +128,8 @@ def run_job(args):
             prompt=t["prompt"],
             model=t.get("model", wmodel),
             depends_on=t.get("depends_on", []),
+            thinking=t.get("thinking", "") or wthinking,
+            timeout=float(wtimeout),
         )
         for t in tasks_raw
     ]
@@ -147,6 +151,7 @@ def run_job(args):
         job_title=description,
         omodel=omodel,
         output_dir=output_dir,
+        thinking_map=thinking_map,
     )
     return 0 if errors == 0 else 1
 

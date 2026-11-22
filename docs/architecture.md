@@ -103,12 +103,26 @@ advisor.py run "Build the auth module"
             failed deps -> mark dependents SKIPPED; independent tasks keep running
             |
             for each ready task (up to max_parallel concurrent):
-                thread -> real_claude --print --model haiku --max-turns N -p "<task_prompt>"
+                thread -> real_claude --print --model <task.model> --max-turns N -p "<task_prompt>"
+                env: SMARTMODEL_DISABLE=1
                 on complete: status=COMPLETE, write ~/.claude/smartmodel/jobs/<ts>/<id>.txt
-                on failure:  status=ERROR
+                on failure or timeout: status=ERROR
             |
             main thread redraws ANSI TUI every 100ms:
-                ✓ complete (green) · running spinner (cyan) · waiting (dim) · ✗ error (red) · ↷ skipped (yellow)
+
+            ─────────────────────────────────────────────────────────────────────
+             auto-brain  "Build user auth"                      opus 4.7 → workers
+            ─────────────────────────────────────────────────────────────────────
+              ✓  W1   haiku 4.5       [low ]  Create user model           4.2s
+              ⠸  W2   opus 4.7        [high]  Run test suite            42s/300s
+              ·  W3   haiku 4.5       [low ]  Write tests                   --
+              ✗  W4   haiku 4.5       [low ]  Update README               0.9s
+              ↷  W5   sonnet 4.6      [med ]  Write changelog                --
+            ─────────────────────────────────────────────────────────────────────
+              1 done · 1 running · 2 waiting · 1 error
+
+            Columns: status · worker ID (W#) · model + version · thinking effort ·
+                     task title · elapsed time (running: elapsed/max; done: total; timeout: TIMEOUT)
             |
             SIGINT: terminate in-flight subprocesses, mark remaining SKIPPED
             |

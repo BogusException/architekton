@@ -9,6 +9,7 @@ from unittest import mock
 
 from auto_brain.runner import (
     Status, Task, _ready_tasks, _has_failed_dep, _TUI, _write_output, run,
+    _model_display, _resolve_thinking, _time_field,
 )
 
 
@@ -115,7 +116,7 @@ class TUITest(unittest.TestCase):
         buf = io.StringIO()
         with mock.patch("sys.stdout", buf):
             tui.final(tasks, "job", "opus", tick=0)
-        self.assertEqual(tui._lines, len(tasks) + 5)  # sep + title + summary + sep + rows + sep
+        self.assertEqual(tui._lines, len(tasks) + 5)  # sep + title + sep + rows + sep + summary
 
 
 class WriteOutputTest(unittest.TestCase):
@@ -185,6 +186,86 @@ class RunIntegrationTest(unittest.TestCase):
         self.assertEqual(errors, 1)
         self.assertEqual(skipped, 1)   # t2 skipped because t1 failed
         self.assertEqual(complete, 1)  # t3 unaffected
+
+
+class ModelDisplayTest(unittest.TestCase):
+    def test_alias_unchanged(self):
+        self.assertEqual(_model_display("haiku"), "haiku")
+        self.assertEqual(_model_display("sonnet"), "sonnet")
+        self.assertEqual(_model_display("opus"), "opus")
+
+    def test_full_id_with_version(self):
+        self.assertEqual(_model_display("claude-opus-4-7"), "opus 4.7")
+        self.assertEqual(_model_display("claude-sonnet-4-6"), "sonnet 4.6")
+        self.assertEqual(_model_display("claude-haiku-4-5"), "haiku 4.5")
+
+    def test_full_id_with_date_suffix(self):
+        self.assertEqual(_model_display("claude-haiku-4-5-20251001"), "haiku 4.5")
+
+    def test_unknown_model_truncated(self):
+        result = _model_display("some-custom-model-xyz")
+        self.assertLessEqual(len(result), 15)
+
+
+class ResolveThinkingTest(unittest.TestCase):
+    def test_explicit_thinking_takes_precedence(self):
+        t = Task(id="1", title="T", prompt="p", model="haiku", thinking="high")
+        self.assertEqual(_resolve_thinking(t), "high")
+
+    def test_derived_from_haiku(self):
+        t = Task(id="1", title="T", prompt="p", model="haiku")
+        self.assertEqual(_resolve_thinking(t), "low")
+
+    def test_derived_from_sonnet(self):
+        t = Task(id="1", title="T", prompt="p", model="sonnet")
+        self.assertEqual(_resolve_thinking(t), "med")
+
+    def test_derived_from_opus(self):
+        t = Task(id="1", title="T", prompt="p", model="opus")
+        self.assertEqual(_resolve_thinking(t), "high")
+
+    def test_custom_map(self):
+        t = Task(id="1", title="T", prompt="p", model="haiku")
+        self.assertEqual(_resolve_thinking(t, {"haiku": "ext"}), "ext")
+
+    def test_full_model_id_derived(self):
+        t = Task(id="1", title="T", prompt="p", model="claude-opus-4-7")
+        self.assertEqual(_resolve_thinking(t), "high")
+
+
+class TimeFieldTest(unittest.TestCase):
+    def test_waiting_shows_dashes(self):
+        t = Task(id="1", title="T", prompt="p")
+        self.assertEqual(_time_field(t), "--")
+
+    def test_running_no_timeout(self):
+        t = Task(id="1", title="T", prompt="p", status=Status.RUNNING)
+        t.start_time = time.monotonic() - 5.0
+        result = _time_field(t)
+        self.assertIn("s", result)
+        self.assertNotIn("/", result)
+
+    def test_running_with_timeout(self):
+        t = Task(id="1", title="T", prompt="p", status=Status.RUNNING, timeout=300)
+        t.start_time = time.monotonic() - 10.0
+        result = _time_field(t)
+        self.assertIn("/", result)
+        self.assertIn("300s", result)
+
+    def test_complete_shows_duration(self):
+        t = Task(id="1", title="T", prompt="p", status=Status.COMPLETE)
+        t.start_time = 100.0
+        t.end_time = 104.3
+        result = _time_field(t)
+        self.assertIn("4.3s", result)
+
+    def test_timeout_error_shows_timeout_label(self):
+        t = Task(id="1", title="T", prompt="p", status=Status.ERROR)
+        t.start_time = 100.0
+        t.end_time = 400.0
+        t.error = "timeout after 300s"
+        result = _time_field(t)
+        self.assertEqual(result, "TIMEOUT")
 
 
 if __name__ == "__main__":

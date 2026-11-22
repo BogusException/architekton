@@ -71,6 +71,16 @@ class ExtractTasksTest(unittest.TestCase):
         self.assertEqual(len(result), 2)
         self.assertEqual(result[1]["depends_on"], ["1"])
 
+    def test_thinking_field_passed_through(self):
+        data = [{"id": "1", "prompt": "Do it", "thinking": "high"}]
+        result = orchestrator._extract_tasks(json.dumps(data))
+        self.assertEqual(result[0]["thinking"], "high")
+
+    def test_thinking_field_defaults_to_empty(self):
+        data = [{"id": "1", "prompt": "Do it"}]
+        result = orchestrator._extract_tasks(json.dumps(data))
+        self.assertEqual(result[0]["thinking"], "")
+
 
 class DecomposeTest(unittest.TestCase):
     def _mock_run(self, tasks_data, returncode=0, stderr=""):
