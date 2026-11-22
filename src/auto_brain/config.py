@@ -15,6 +15,14 @@ DEFAULTS = {
         "sonnet": {"input_per_1m":  3.00, "output_per_1m": 15.00},
         "haiku":  {"input_per_1m":  0.80, "output_per_1m":  4.00},
     },
+    "job": {
+        "orchestrator_model":    "opus",
+        "worker_model":          "haiku",
+        "max_parallel":          4,
+        "worker_timeout":        300,
+        "worker_max_turns":      20,
+        "orchestrator_preamble": "",
+    },
 }
 VALID_MODES = ("auto", "advisory")
 

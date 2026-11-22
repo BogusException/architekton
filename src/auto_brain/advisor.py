@@ -1,11 +1,13 @@
-"""auto-brain CLI: classify, session-start, toggle, status, warn, session-end, report."""
+"""auto-brain CLI: classify, session-start, toggle, status, warn, session-end, report, run."""
 
 import argparse
 import json
 import os
 import sys
+from datetime import datetime
+from pathlib import Path
 
-from auto_brain import classifier, config, fingerprint, journal
+from auto_brain import classifier, config, fingerprint, journal, orchestrator, runner
 
 
 def run_classify(args):
@@ -95,6 +97,60 @@ def run_warn(args):
     return 0
 
 
+def run_job(args):
+    cfg = config.load()
+    job_cfg = cfg.get("job", {})
+    omodel = job_cfg.get("orchestrator_model", "opus")
+    wmodel = job_cfg.get("worker_model", "haiku")
+    max_parallel = job_cfg.get("max_parallel", 4)
+    wtimeout = job_cfg.get("worker_timeout", 300)
+    wturns = job_cfg.get("worker_max_turns", 20)
+    preamble = job_cfg.get("orchestrator_preamble", "")
+    description = " ".join(args.job)
+    real_claude = orchestrator._find_real_claude()
+
+    print(f"[auto-brain] Planning with {omodel}...", file=sys.stderr)
+    try:
+        tasks_raw = orchestrator.decompose(
+            description, model=omodel, real_claude=real_claude,
+            preamble=preamble, default_worker_model=wmodel,
+        )
+    except Exception as error:
+        print(f"auto-brain: orchestrator failed: {error}", file=sys.stderr)
+        return 1
+
+    tasks = [
+        runner.Task(
+            id=t["id"],
+            title=t.get("title", t["id"]),
+            prompt=t["prompt"],
+            model=t.get("model", wmodel),
+            depends_on=t.get("depends_on", []),
+        )
+        for t in tasks_raw
+    ]
+    print(f"[auto-brain] {len(tasks)} tasks planned.", file=sys.stderr)
+
+    output_dir = (
+        Path(os.environ.get("CLAUDE_CONFIG_DIR", "") or Path.home() / ".claude")
+        / "smartmodel" / "jobs"
+        / datetime.now().strftime("%Y%m%d-%H%M%S")
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    _complete, errors, _skipped = runner.run(
+        tasks,
+        real_claude=real_claude,
+        max_parallel=max_parallel,
+        worker_timeout=wtimeout,
+        worker_max_turns=wturns,
+        job_title=description,
+        omodel=omodel,
+        output_dir=output_dir,
+    )
+    return 0 if errors == 0 else 1
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="advisor")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -123,6 +179,10 @@ def build_parser():
     rep = commands.add_parser("report", help="print spend report from the cost journal")
     rep.add_argument("--days", type=int, default=None, metavar="N", help="limit to last N days (default: all time)")
     rep.set_defaults(run=run_report)
+
+    job = commands.add_parser("run", help="run a multi-agent job (opus plans, haiku workers)")
+    job.add_argument("job", nargs="+", help="job description")
+    job.set_defaults(run=run_job)
 
     return parser
 

@@ -27,6 +27,14 @@
 - [x] `advisor.py report [--days N]` -- reads journal, prints model mix + estimated cost per project
 - [x] Pricing table in `config/global-default.json` (input/output $/1M tokens per model)
 
+### Phase 4B -- multi-agent job runner
+- [x] `src/auto_brain/orchestrator.py` -- opus decomposes a job into a task DAG
+- [x] `src/auto_brain/runner.py` -- parallel worker execution with ANSI TUI and dependency resolution
+- [x] `advisor.py run <job>` -- entry point: plan → execute → summarize
+- [x] `config.py` / `global-default.json` -- `job.*` config section
+- [x] `/goal` skill: already at user scope (`~/.claude/skills/goal/`), no install needed
+- [x] `tests/test_orchestrator.py` + `tests/test_runner.py` -- 37 new tests
+
 ### Phase 4 -- advanced features
 - [ ] Complexity momentum -- session state file, last N prompt scores
 - [ ] Budget mode with graceful degradation -- daily_usd + warn_pct config keys
