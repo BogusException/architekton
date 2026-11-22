@@ -13,13 +13,16 @@ The core constraint: Claude Code has no mid-session model switching API. All aut
 | Component | Responsibility | File or module |
 |---|---|---|
 | Wrapper script | Reads project/global config, picks model, launches `claude --model <x>` | `src/auto_brain/hooks/claude-wrapper.sh` -> `~/bin/claude` |
-| Advisor | CLI entry point: classify, session-start, toggle, status, weekly report | `src/auto_brain/advisor.py` |
+| Advisor | CLI entry point: classify, session-start, toggle, status, report, run | `src/auto_brain/advisor.py` |
 | Classifier | Heuristic complexity scorer. No LLM calls. Fast and free. | `src/auto_brain/classifier.py` |
 | Fingerprint | Project-type detector: reads `.mkproj`, `CLAUDE.md`, `requirements.txt` to bias model | `src/auto_brain/fingerprint.py` |
 | Config | Loads global + project configs, merges with priority order | `src/auto_brain/config.py` |
 | Journal | Per-session cost journal read/write | `src/auto_brain/journal.py` |
+| Orchestrator | Calls a high-model to decompose a job into a task DAG | `src/auto_brain/orchestrator.py` |
+| Runner | Executes task DAG with parallel workers and a live ANSI TUI | `src/auto_brain/runner.py` |
 | Warn hook | `UserPromptSubmit` hook: classifies prompt, injects mismatch warning | `src/auto_brain/hooks/smartmodel-warn.sh` |
-| Installer | Copies wrapper, registers hook, writes global config | `install.sh` |
+| Journal hook | `Stop` hook: counts turns, appends session record to cost journal | `src/auto_brain/hooks/cost-journal.sh` |
+| Installer | Copies wrapper, registers hooks, writes global config | `install.sh` |
 
 ## 3. Config hierarchy (highest to lowest priority)
 
@@ -72,12 +75,44 @@ smartmodel-warn.sh (UserPromptSubmit hook)
 
 ### Session end
 ```
-Stop hook
+Stop hook (cost-journal.sh)
       |
-      journal.py session-end --model $CLAUDE_MODEL --turns N
+      advisor.py session-end (reads JSON payload on stdin)
+            |
+            counts user-role messages in transcript_path -> turns
+            |
+            journal.py session_end(model, turns)
             |
             appends one line to ~/.claude/smartmodel/cost-journal.jsonl:
             {"date":..., "project":..., "model":..., "turns":..., "heavy_prompts":..., "light_prompts":...}
+```
+
+### Job runner
+```
+advisor.py run "Build the auth module"
+      |
+      orchestrator.py decompose()
+            |
+            calls: real_claude --print --model opus -p "<decompose_prompt>"
+            env: SMARTMODEL_DISABLE=1
+            parses: JSON task list [{id, title, prompt, model, depends_on}, ...]
+      |
+      runner.py run(tasks, ...)
+            |
+            task DAG: tasks whose depends_on are all COMPLETE are "ready"
+            failed deps -> mark dependents SKIPPED; independent tasks keep running
+            |
+            for each ready task (up to max_parallel concurrent):
+                thread -> real_claude --print --model haiku --max-turns N -p "<task_prompt>"
+                on complete: status=COMPLETE, write ~/.claude/smartmodel/jobs/<ts>/<id>.txt
+                on failure:  status=ERROR
+            |
+            main thread redraws ANSI TUI every 100ms:
+                ✓ complete (green) · running spinner (cyan) · waiting (dim) · ✗ error (red) · ↷ skipped (yellow)
+            |
+            SIGINT: terminate in-flight subprocesses, mark remaining SKIPPED
+            |
+            print summary: N complete, N error, N skipped
 ```
 
 ## 5. Complexity scoring
@@ -117,3 +152,4 @@ No third-party Python packages. No network calls in the hot path.
 3. **Budget mode with graceful degradation** -- at 80% of `daily_usd`, recommend one tier down. At 100%, recommend Haiku regardless of complexity.
 4. **Model ladder** -- Stop hook detects `tool_use_error` payloads and bumps recommended tier up for the next session.
 5. **Weekly spend report** -- `advisor.py report [--days 7]` reads the cost journal and prints model mix + estimated cost per project.
+6. **Multi-agent job runner** -- `advisor.py run "<goal>"` lets a high-model orchestrator decompose a job into a dependency-ordered task DAG, then dispatches haiku workers in parallel with a live TUI.

@@ -36,7 +36,7 @@ if transcript:
             texts=[b["text"] for b in content if isinstance(b,dict) and b.get("type")=="text" and isinstance(b.get("text"),str) and b["text"].strip()]
             if texts: query="\n".join(texts)
 if not isinstance(query,str) or not query.strip():
-    raise ValueError("Cannot archive exchange: user query unavailable")
+    sys.exit(0)
 directory=project/"responses"
 if directory.is_symlink():
     raise RuntimeError("Refusing a symlinked archive directory")

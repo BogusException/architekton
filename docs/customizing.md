@@ -14,6 +14,18 @@ Config files are JSON. The global file is `~/.claude/smartmodel/config.json`; pr
 | `models.opus` | `"opus"` | Alias or full model ID to use for the opus tier |
 | `thresholds.light` | `0.30` | Complexity score at or below this resolves to haiku |
 | `thresholds.heavy` | `0.65` | Complexity score at or above this resolves to opus |
+| `pricing.opus.input_per_1m` | `15.00` | $/1M input tokens for opus (used by cost report) |
+| `pricing.opus.output_per_1m` | `75.00` | $/1M output tokens for opus |
+| `pricing.sonnet.input_per_1m` | `3.00` | $/1M input tokens for sonnet |
+| `pricing.sonnet.output_per_1m` | `15.00` | $/1M output tokens for sonnet |
+| `pricing.haiku.input_per_1m` | `0.80` | $/1M input tokens for haiku |
+| `pricing.haiku.output_per_1m` | `4.00` | $/1M output tokens for haiku |
+| `job.orchestrator_model` | `"opus"` | Model used to plan a job (decompose into tasks) |
+| `job.worker_model` | `"haiku"` | Default model for each task worker |
+| `job.max_parallel` | `4` | Maximum concurrent worker sessions |
+| `job.worker_timeout` | `300` | Seconds before a worker is killed |
+| `job.worker_max_turns` | `20` | `--max-turns` passed to each worker |
+| `job.orchestrator_preamble` | `""` | Text prepended to the orchestrator prompt; set to `/plan\n` to invoke the native `/plan` skill |
 
 **Environment override:** Set `SMARTMODEL_DISABLE=1` to bypass auto-brain for one session without touching config.
 

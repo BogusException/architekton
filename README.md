@@ -28,11 +28,39 @@ python -m auto_brain.advisor session-start
 # Show current config and session state
 python -m auto_brain.advisor status
 
+# Spend report (last 7 days)
+python -m auto_brain.advisor report --days 7
+
+# Run a multi-agent job: opus plans, haiku workers execute in parallel
+python -m auto_brain.advisor run "Build a REST API for user authentication"
+
 # Disable globally
 python -m auto_brain.advisor toggle off
 
 # Re-enable
 python -m auto_brain.advisor toggle on
+```
+
+## Multi-agent jobs
+
+`advisor run` decomposes a natural-language goal into a task DAG using an orchestrator model (default: opus), then dispatches parallel haiku workers -- one Claude Code session per task. A live TUI shows each worker's status in real time.
+
+```
+─────────────────────────────────────────────────────────
+ auto-brain  "Build user auth"   opus → workers
+─────────────────────────────────────────────────────────
+  ✓  1  Create user model            haiku     4.2s
+  ⠸  2  Write auth endpoints         haiku     1.8s
+  ·  3  Write tests                  haiku      --
+─────────────────────────────────────────────────────────
+  1 done · 1 running · 1 waiting
+```
+
+Worker output is saved per-task to `~/.claude/smartmodel/jobs/<timestamp>/<task_id>.txt`.
+
+To wire in the native `/plan` skill as the orchestrator preamble, add to `~/.claude/smartmodel/config.json`:
+```json
+"job": { "orchestrator_preamble": "/plan\n" }
 ```
 
 ## Configuration
@@ -46,6 +74,9 @@ Global config: `~/.claude/smartmodel/config.json`. Project overrides: `.claude/s
 | `default_model` | `"sonnet"` | Fallback when no fingerprint matches |
 | `thresholds.light` | `0.30` | Complexity at or below this -> Haiku |
 | `thresholds.heavy` | `0.65` | Complexity at or above this -> Opus |
+| `job.orchestrator_model` | `"opus"` | Model used to plan a job |
+| `job.worker_model` | `"haiku"` | Default model for each task worker |
+| `job.max_parallel` | `4` | Max concurrent workers |
 
 Set `SMARTMODEL_DISABLE=1` to bypass for a single session without changing config.
 

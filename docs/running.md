@@ -19,6 +19,9 @@ After install, `claude` just works. The wrapper is transparent -- every session 
 | Disable auto-brain | `PYTHONPATH=src python -m auto_brain.advisor toggle off` |
 | Re-enable | `PYTHONPATH=src python -m auto_brain.advisor toggle on` |
 | Bypass for one session | `SMARTMODEL_DISABLE=1 claude` |
+| Spend report (last 7 days) | `PYTHONPATH=src python -m auto_brain.advisor report --days 7` |
+| Spend report (all time) | `PYTHONPATH=src python -m auto_brain.advisor report` |
+| Run a multi-agent job | `PYTHONPATH=src python -m auto_brain.advisor run "describe the goal"` |
 
 ## 3. Environment modes
 
