@@ -25,6 +25,20 @@ DEFAULTS = {
         "thinking_map":          {"haiku": "low", "sonnet": "med", "opus": "high"},
         "worker_thinking":       "",
     },
+    "tui": {
+        "color":           True,
+        "status_waiting":  "dim",
+        "status_running":  "cyan",
+        "status_complete": "green",
+        "status_error":    "red",
+        "status_skipped":  "yellow",
+        "model_haiku":     "green",
+        "model_sonnet":    "cyan",
+        "model_opus":      "red",
+        "model_other":     "",
+        "separator":       "dim",
+        "row_bg":          "",
+    },
 }
 VALID_MODES = ("auto", "advisory")
 

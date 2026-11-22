@@ -1,6 +1,7 @@
 """Parallel task runner with a live ANSI TUI."""
 
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -43,15 +44,16 @@ class Task:
 
 
 # ANSI codes
-_R       = "\033[0m"
-_BOLD    = "\033[1m"
-_DIM     = "\033[2m"
-_CYAN    = "\033[36m"
-_GREEN   = "\033[32m"
-_RED     = "\033[31m"
-_YELLOW  = "\033[33m"
-_CLRLINE = "\033[2K\r"
-_SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+_R        = "\033[0m"
+_RESET_FG = "\033[39m"   # reset fg only, keeps row background active
+_BOLD     = "\033[1m"
+_DIM      = "\033[2m"
+_CYAN     = "\033[36m"
+_GREEN    = "\033[32m"
+_RED      = "\033[31m"
+_YELLOW   = "\033[33m"
+_CLRLINE  = "\033[2K\r"
+_SPINNER  = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 _STATUS_STYLE = {
     Status.WAITING:  ("·", _DIM),
@@ -60,6 +62,114 @@ _STATUS_STYLE = {
     Status.ERROR:    ("✗", _RED),
     Status.SKIPPED:  ("↷", _YELLOW),
 }
+
+# Palette color name -> ANSI escape mappings
+_ANSI_FG = {
+    "black":          "\033[30m",
+    "red":            "\033[31m",
+    "green":          "\033[32m",
+    "yellow":         "\033[33m",
+    "blue":           "\033[34m",
+    "magenta":        "\033[35m",
+    "cyan":           "\033[36m",
+    "white":          "\033[37m",
+    "bright_black":   "\033[90m",
+    "bright_red":     "\033[91m",
+    "bright_green":   "\033[92m",
+    "bright_yellow":  "\033[93m",
+    "bright_blue":    "\033[94m",
+    "bright_magenta": "\033[95m",
+    "bright_cyan":    "\033[96m",
+    "bright_white":   "\033[97m",
+    "dim":            "\033[2m",
+    "bold":           "\033[1m",
+}
+_ANSI_BG = {
+    "black":          "\033[40m",
+    "red":            "\033[41m",
+    "green":          "\033[42m",
+    "yellow":         "\033[43m",
+    "blue":           "\033[44m",
+    "magenta":        "\033[45m",
+    "cyan":           "\033[46m",
+    "white":          "\033[47m",
+    "bright_black":   "\033[100m",
+    "bright_red":     "\033[101m",
+    "bright_green":   "\033[102m",
+    "bright_yellow":  "\033[103m",
+    "bright_blue":    "\033[104m",
+    "bright_magenta": "\033[105m",
+    "bright_cyan":    "\033[106m",
+    "bright_white":   "\033[107m",
+}
+_RGB_RE = re.compile(r"^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$", re.I)
+
+
+def _ansi_fg(spec):
+    """Return ANSI fg escape for a color spec: named color, 'rgb(R,G,B)', or ''."""
+    s = (spec or "").strip().lower()
+    if not s or s == "none":
+        return ""
+    m = _RGB_RE.match(s)
+    if m:
+        return f"\033[38;2;{m.group(1)};{m.group(2)};{m.group(3)}m"
+    return _ANSI_FG.get(s, "")
+
+
+def _ansi_bg(spec):
+    """Return ANSI bg escape for a color spec: named color, 'rgb(R,G,B)', or ''."""
+    s = (spec or "").strip().lower()
+    if not s or s == "none":
+        return ""
+    m = _RGB_RE.match(s)
+    if m:
+        return f"\033[48;2;{m.group(1)};{m.group(2)};{m.group(3)}m"
+    return _ANSI_BG.get(s, "")
+
+
+def _colorize(text, fg_spec, end=None):
+    """Wrap text with an ANSI fg color. Defaults to full reset at end."""
+    fg = _ansi_fg(fg_spec)
+    if not fg:
+        return text
+    return f"{fg}{text}{_R if end is None else end}"
+
+
+class _Palette:
+    """Maps tui config color names to ANSI sequences for the job runner TUI."""
+
+    _STATUS_KEYS = {
+        Status.WAITING:  "status_waiting",
+        Status.RUNNING:  "status_running",
+        Status.COMPLETE: "status_complete",
+        Status.ERROR:    "status_error",
+        Status.SKIPPED:  "status_skipped",
+    }
+
+    def __init__(self, cfg, enabled):
+        self._cfg = cfg or {}
+        self.enabled = bool(enabled)
+
+    def status_fg(self, status):
+        return self._cfg.get(self._STATUS_KEYS.get(status, ""), "")
+
+    def model_fg(self, model_str):
+        display = _model_display(model_str).lower()
+        for family in ("haiku", "sonnet", "opus"):
+            if family in display:
+                return self._cfg.get(f"model_{family}", "")
+        return self._cfg.get("model_other", "")
+
+    def sep_fg(self):
+        return self._cfg.get("separator", "")
+
+    def row_bg(self):
+        return self._cfg.get("row_bg", "")
+
+    def colorize(self, text, fg_spec, end=None):
+        if not self.enabled:
+            return text
+        return _colorize(text, fg_spec, end=end)
 
 _KNOWN_FAMILIES = {"haiku", "sonnet", "opus"}
 _DEFAULT_THINKING_MAP = {"haiku": "low", "sonnet": "med", "opus": "high"}
@@ -169,14 +279,17 @@ class _TUI:
     # status(5) + wid(6) + model(17) + thinking(8) + sep(2) + time(10) = 48
     _FIXED = 48
 
-    def __init__(self, is_tty, thinking_map=None):
+    def __init__(self, is_tty, thinking_map=None, palette=None):
         self._is_tty = is_tty
         self._lines = 0
         self._thinking_map = thinking_map
+        self._palette = palette
 
     def render(self, tasks, job_title, omodel, tick):
         w = _term_width()
-        sep = "─" * w
+        pal = self._palette
+        sep_plain = "─" * w
+        sep = pal.colorize(sep_plain, pal.sep_fg()) if (pal and pal.enabled) else sep_plain
         counts = {s: sum(1 for t in tasks if t.status == s) for s in Status}
         parts = [
             f"{counts[s]} {s.value}"
@@ -194,7 +307,7 @@ class _TUI:
         title_w = max(w - self._FIXED, 15)
         rows = []
         for task in tasks:
-            icon, color = _STATUS_STYLE[task.status]
+            icon, default_color = _STATUS_STYLE[task.status]
             if task.status == Status.RUNNING:
                 icon = _SPINNER[tick % len(_SPINNER)]
             wid = f"W{task.id}"
@@ -202,14 +315,31 @@ class _TUI:
             thinking = _resolve_thinking(task, self._thinking_map)
             time_str = _time_field(task)
             title_trunc = task.title[:title_w]
-            rows.append(
-                f"  {color}{icon}{_R}  "
-                f"{wid:<4}  "
-                f"{model_disp:<15}  "
-                f"[{thinking:<4}]  "
-                f"{title_trunc:<{title_w}}  "
-                f"{time_str:>10}"
-            )
+
+            if pal and pal.enabled:
+                # Pad plain-text fields to fixed widths first (ANSI codes have zero visual width),
+                # then wrap with color. This keeps column alignment correct.
+                rb_code = _ansi_bg(pal.row_bg())
+                field_end = _RESET_FG if rb_code else _R
+                sfg = pal.status_fg(task.status)
+                mfg = pal.model_fg(task.model)
+                icon_c = pal.colorize(icon, sfg, end=field_end)
+                wid_c  = pal.colorize(f"{wid:<4}", sfg, end=field_end)
+                mod_c  = pal.colorize(f"{model_disp:<15}", mfg, end=field_end)
+                body = (
+                    f"  {icon_c}  {wid_c}  {mod_c}  "
+                    f"[{thinking:<4}]  {title_trunc:<{title_w}}  {time_str:>10}"
+                )
+                rows.append(f"{rb_code}{body}{_R}" if rb_code else body)
+            else:
+                rows.append(
+                    f"  {default_color}{icon}{_R}  "
+                    f"{wid:<4}  "
+                    f"{model_disp:<15}  "
+                    f"[{thinking:<4}]  "
+                    f"{title_trunc:<{title_w}}  "
+                    f"{time_str:>10}"
+                )
         footer = [sep, summary]
         all_lines = header + rows + footer
 
@@ -298,7 +428,8 @@ def _write_output(output_dir, task, stdout, stderr):
 
 
 def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns=20,
-        job_title="", omodel="opus", cwd=None, output_dir=None, thinking_map=None):
+        job_title="", omodel="opus", cwd=None, output_dir=None, thinking_map=None,
+        color_cfg=None):
     """Execute a task DAG with parallel workers and a live TUI.
 
     Returns (complete_count, error_count, skipped_count).
@@ -313,7 +444,9 @@ def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
     is_tty = sys.stdout.isatty()
-    tui = _TUI(is_tty, thinking_map=thinking_map)
+    cfg = color_cfg or {}
+    palette = _Palette(cfg, enabled=is_tty and cfg.get("color", True) is not False)
+    tui = _TUI(is_tty, thinking_map=thinking_map, palette=palette)
     shutdown = threading.Event()
     threads = []
     tick = 0

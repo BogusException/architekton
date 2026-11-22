@@ -11,6 +11,7 @@ from auto_brain.runner import (
     Status, Task, _ready_tasks, _has_failed_dep, _TUI, _write_output, run,
     _model_display, _resolve_thinking, _time_field,
     _normalize_thinking, _VALID_THINKING, _THINKING_ALIASES,
+    _ansi_fg, _ansi_bg, _colorize, _Palette,
 )
 
 
@@ -334,6 +335,90 @@ class NormalizeThinkingTest(unittest.TestCase):
         for alias in _THINKING_ALIASES:
             result, _ = _normalize_thinking(alias)
             self.assertIn(result, _VALID_THINKING, f"alias '{alias}' maps to invalid '{result}'")
+
+
+class PaletteTest(unittest.TestCase):
+    def test_ansi_fg_named_color(self):
+        code = _ansi_fg("green")
+        self.assertTrue(code.startswith("\033["))
+
+    def test_ansi_fg_rgb(self):
+        code = _ansi_fg("rgb(255, 0, 128)")
+        self.assertIn("38;2;255;0;128", code)
+
+    def test_ansi_fg_empty_returns_empty(self):
+        self.assertEqual(_ansi_fg(""), "")
+
+    def test_ansi_fg_none_returns_empty(self):
+        self.assertEqual(_ansi_fg("none"), "")
+
+    def test_ansi_fg_unknown_returns_empty(self):
+        self.assertEqual(_ansi_fg("ultraviolet"), "")
+
+    def test_ansi_bg_rgb(self):
+        code = _ansi_bg("rgb(0, 0, 0)")
+        self.assertIn("48;2;0;0;0", code)
+
+    def test_ansi_bg_named(self):
+        code = _ansi_bg("black")
+        self.assertTrue(code.startswith("\033["))
+
+    def test_colorize_wraps_reset(self):
+        result = _colorize("hello", "green")
+        self.assertTrue(result.startswith("\033["))
+        self.assertIn("hello", result)
+        self.assertTrue(result.endswith("\033[0m"))
+
+    def test_colorize_empty_fg_returns_plain(self):
+        self.assertEqual(_colorize("hello", ""), "hello")
+
+    def test_colorize_custom_end(self):
+        result = _colorize("x", "red", end="\033[39m")
+        self.assertTrue(result.endswith("\033[39m"))
+
+    def test_palette_model_haiku_green(self):
+        pal = _Palette({"model_haiku": "green", "color": True}, enabled=True)
+        fg = pal.model_fg("haiku")
+        self.assertEqual(fg, "green")
+        code = _ansi_fg(fg)
+        self.assertIn("32", code)  # green is \033[32m
+
+    def test_palette_model_opus_red(self):
+        pal = _Palette({"model_opus": "red"}, enabled=True)
+        fg = pal.model_fg("claude-opus-4-7")
+        self.assertEqual(fg, "red")
+
+    def test_palette_status_complete_green(self):
+        pal = _Palette({"status_complete": "green"}, enabled=True)
+        self.assertEqual(pal.status_fg(Status.COMPLETE), "green")
+
+    def test_palette_disabled_colorize_returns_plain(self):
+        pal = _Palette({"model_haiku": "green"}, enabled=False)
+        self.assertEqual(pal.colorize("hello", "green"), "hello")
+
+    def test_palette_enabled_colorize_wraps(self):
+        pal = _Palette({"model_haiku": "green"}, enabled=True)
+        result = pal.colorize("hello", "green")
+        self.assertNotEqual(result, "hello")
+        self.assertIn("hello", result)
+
+    def test_tui_renders_with_palette(self):
+        pal = _Palette(
+            {"color": True, "model_haiku": "green", "model_opus": "red",
+             "status_complete": "green", "status_error": "red", "separator": "dim"},
+            enabled=True,
+        )
+        tui = _TUI(is_tty=True, palette=pal)
+        tasks = [
+            Task(id="1", title="Build", prompt="x", model="haiku", status=Status.COMPLETE),
+            Task(id="2", title="Test",  prompt="x", model="opus",  status=Status.ERROR),
+        ]
+        buf = io.StringIO()
+        with mock.patch("sys.stdout", buf):
+            tui.render(tasks, "demo job", "opus", tick=0)
+        output = buf.getvalue()
+        self.assertIn("✓", output)
+        self.assertIn("✗", output)
 
 
 if __name__ == "__main__":

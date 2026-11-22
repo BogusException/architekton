@@ -181,6 +181,7 @@ def run_job(args):
         omodel=omodel,
         output_dir=output_dir,
         thinking_map=thinking_map,
+        color_cfg=cfg.get("tui", {}),
     )
     return 0 if errors == 0 else 1
 
