@@ -1,6 +1,18 @@
 # architekton
 
-Model advisor for Claude Code. Automatically selects the right Claude model (Opus / Sonnet / Haiku) at session start based on project type and prompt complexity. Warns mid-session when the active model is mismatched for the task.
+You're paying Opus prices for tasks Haiku would handle fine.
+
+architekton wraps the `claude` CLI to automatically select the right model at session start, warns you mid-session when complexity changes, runs multi-agent jobs where an Opus planner dispatches parallel Haiku workers, and tracks per-project spend in a cost journal. No network calls. Classification runs in under 50 ms.
+
+---
+
+## Why this exists
+
+Opus costs roughly 19x more than Haiku. Most Claude Code sessions don't need Opus. When you're renaming a variable, adding a docstring, or running `git status`, you're burning Opus tokens for work Haiku would finish just as fast.
+
+architekton measures the work in front of you, picks the model that fits, and nudges you when that changes mid-session. It doesn't require you to think about models -- it just handles it.
+
+---
 
 ## Install
 
@@ -8,15 +20,96 @@ Model advisor for Claude Code. Automatically selects the right Claude model (Opu
 bash install.sh
 ```
 
-Requires Python 3.9+, Claude Code, and `jq`. See `docs/install.md` for full prerequisites and verification steps.
+Requires Python 3.9+, Claude Code, and `jq`. The installer:
 
-## How it works
+1. Places a wrapper at `~/bin/claude` that intercepts every session start
+2. Registers a `UserPromptSubmit` hook for mid-session complexity scoring
+3. Registers a `Stop` hook to record session stats in the cost journal
+4. Installs the `architekton-warn` Claude Code mod plugin
 
-The installer places a wrapper at `~/bin/claude` that intercepts every session start. It calls `advisor.py session-start`, which checks project files and config to pick a model, then launches the real Claude with `--model <tier>`. A `UserPromptSubmit` hook then scores each prompt as it arrives and injects a one-line nudge when the active model is a mismatch.
+After install, open a new shell (so `~/bin/claude` takes precedence over the system binary) and start Claude Code as normal. architekton operates silently in the background.
 
-No network calls. No LLM calls. Classification runs in under 50ms.
+For full prerequisites and manual verification steps, see `docs/install.md`.
 
-## Advisor CLI
+To remove everything:
+
+```bash
+bash uninstall.sh
+```
+
+---
+
+## What it does
+
+### 1. Automatic model selection at session start
+
+Before launching Claude Code, the wrapper calls `advisor.py session-start`. This checks two signals in order:
+
+- **Project fingerprint**: scans the project directory for known patterns
+  - Bash-heavy `.mkproj` -> Opus
+  - Data science packages in `requirements.txt` (numpy, pandas, torch, etc.) -> Sonnet
+  - Docs-only project with no source files -> Haiku
+- **Complexity thresholds**: if no fingerprint matches, the default model from config applies
+
+The selected model is passed to Claude Code via `--model`. If architekton is disabled or in advisory mode, Claude Code starts unchanged.
+
+### 2. Mid-session complexity warnings
+
+Every prompt you submit is scored by a heuristic classifier (no LLM, no network). The classifier looks at prompt length and vocabulary signals:
+
+- Architecture, refactor, review, security, debug, root cause -> heavier
+- Rename, typo, format, list, show me, run tests -> lighter
+
+When the active model is mismatched for the detected complexity, architekton injects a one-line nudge via the `UserPromptSubmit` hook:
+
+```
+[architekton] Complexity suggests haiku (you are on sonnet). Switch: /model haiku
+```
+
+The nudge appears above your prompt. It never blocks or delays your message.
+
+### 3. Multi-agent job runner
+
+One command decomposes a goal into a task DAG, then dispatches parallel Claude Code sessions -- one per task -- and displays a live TUI:
+
+```
+─────────────────────────────────────────────────────────────────────────────
+ architekton  "Build user auth API"   opus → workers
+─────────────────────────────────────────────────────────────────────────────
+  ✓  orch  opus 4.7         [high]  DONE  orchestrator  (4 tasks planned)   2.1s
+  ✓  W1    haiku 4.5        [low ]  DONE  Create user model                 18.4s
+  ✓  W2    haiku 4.5        [low ]  DONE  Write auth endpoints               31.2s
+  ⠸  W3    haiku 4.5        [low ]  RUN   Write tests                      14s/300s
+  ·  W4    haiku 4.5        [low ]  PEND  Update OpenAPI spec                  --
+─────────────────────────────────────────────────────────────────────────────
+  2 complete · 1 running · 1 waiting
+```
+
+The orchestrator (Opus by default) plans the work. Workers (Haiku by default) execute in parallel. Task output is saved per-worker to `~/.claude/architekton/jobs/<timestamp>/<task_id>.txt`.
+
+Dependencies between tasks are respected -- a worker won't start until its dependencies complete. If a dependency errors, downstream tasks are skipped.
+
+### 4. Cost journal
+
+Every session end records project name, model, and turn count to a JSONL journal at `~/.claude/architekton/cost-journal.jsonl`. The report command shows estimated spend by project:
+
+```
+$ python -m architekton.advisor report --days 7
+
+Cost journal  --  last 7 days  (12 sessions, estimated costs)
+
+project                         sessions   turns  model mix             est. cost
+------------------------------------------------------------------------
+architekton                            5      87  O:40% S:40% H:20%     $   8.21
+my-web-app                             4      61  S:75% H:25%           $   2.14
+docs-site                              3      22  H:100%                $   0.07
+```
+
+Pricing is configurable per model tier. The journal uses rough per-turn token estimates; treat the numbers as directional, not billing-exact.
+
+---
+
+## CLI reference
 
 ```bash
 # Score a prompt
@@ -31,8 +124,22 @@ python -m architekton.advisor status
 # Spend report (last 7 days)
 python -m architekton.advisor report --days 7
 
-# Run a multi-agent job: opus plans, haiku workers execute in parallel
+# Spend report (all time)
+python -m architekton.advisor report
+
+# Run a multi-agent job
 python -m architekton.advisor run "Build a REST API for user authentication"
+
+# Run with explicit models and parallelism
+python -m architekton.advisor run "Migrate the database schema" \
+  --orchestrator-model opus \
+  --worker-model sonnet \
+  --max-parallel 6 \
+  --timeout 600
+
+# Force all workers to a specific thinking level
+python -m architekton.advisor run "Review and harden the security model" \
+  --thinking high
 
 # Disable globally
 python -m architekton.advisor toggle off
@@ -41,34 +148,20 @@ python -m architekton.advisor toggle off
 python -m architekton.advisor toggle on
 ```
 
-## Multi-agent jobs
+For a single session bypass without changing config:
 
-`advisor run` decomposes a natural-language goal into a task DAG using an orchestrator model (default: opus), then dispatches parallel haiku workers -- one Claude Code session per task. A live TUI shows each worker's status in real time.
-
-```
-─────────────────────────────────────────────────────────
- architekton  "Build user auth"   opus → workers
-─────────────────────────────────────────────────────────
-  ✓  1  Create user model            haiku     4.2s
-  ⠸  2  Write auth endpoints         haiku     1.8s
-  ·  3  Write tests                  haiku      --
-─────────────────────────────────────────────────────────
-  1 done · 1 running · 1 waiting
+```bash
+ARCHITEKTON_DISABLE=1 claude
 ```
 
-Worker output is saved per-task to `~/.claude/architekton/jobs/<timestamp>/<task_id>.txt`.
-
-To wire in the native `/plan` skill as the orchestrator preamble, add to `~/.claude/architekton/config.json`:
-```json
-"job": { "orchestrator_preamble": "/plan\n" }
-```
+---
 
 ## Configuration
 
-Global config: `~/.claude/architekton/config.json`. Project overrides: `.claude/architekton.json`.
+Global config lives at `~/.claude/architekton/config.json`. Project overrides go in `.claude/architekton.json` in your project root. Project values win over global values.
 
-| Key | Default | Effect |
-|-----|---------|--------|
+| Key | Default | Description |
+|-----|---------|-------------|
 | `enabled` | `true` | Set `false` to disable without uninstalling |
 | `mode` | `"auto"` | `"auto"` selects model at start; `"advisory"` only warns mid-session |
 | `default_model` | `"sonnet"` | Fallback when no fingerprint matches |
@@ -76,14 +169,112 @@ Global config: `~/.claude/architekton/config.json`. Project overrides: `.claude/
 | `thresholds.heavy` | `0.65` | Complexity at or above this -> Opus |
 | `job.orchestrator_model` | `"opus"` | Model used to plan a job |
 | `job.worker_model` | `"haiku"` | Default model for each task worker |
-| `job.max_parallel` | `4` | Max concurrent workers |
+| `job.max_parallel` | `4` | Maximum concurrent worker sessions |
+| `job.worker_timeout` | `300` | Seconds before a worker session is killed |
+| `job.worker_max_turns` | `20` | Max turns per worker session |
+| `job.thinking_map` | `{haiku: low, sonnet: med, opus: high}` | Maps model tier to thinking effort |
+| `job.worker_thinking` | `""` | Force all workers to a fixed effort level |
 
-Set `ARCHITEKTON_DISABLE=1` to bypass for a single session without changing config.
+**Thinking effort levels:** `low`, `med`, `high`, `ext`. These are passed to Claude Code as the extended thinking budget. Unknown values pass through with a warning; common aliases (`medium`, `extreme`, `max`) are silently normalized.
 
-See `docs/customizing.md` for the full config reference and extension points.
+**Model values** accept short aliases (`haiku`, `sonnet`, `opus`) or full model IDs (`claude-opus-4-7`, `claude-haiku-4-5-20251001`).
+
+**TUI colors** are configurable under the `tui` key. Each status and model family has a named color slot that accepts any named ANSI color (`cyan`, `bright_green`, etc.) or an `rgb(R,G,B)` value.
+
+To wire in the native `/plan` skill as the orchestrator preamble:
+
+```json
+"job": { "orchestrator_preamble": "/plan\n" }
+```
+
+Full config reference with all keys and extension points: `docs/customizing.md`.
+
+---
+
+## Project fingerprinting
+
+The fingerprint detector runs at session start to bias model selection before any prompts are scored. It checks (in priority order):
+
+1. `.mkproj` present and bash-heavy (3+ of: `#!/bin/bash`, function declarations, `if [`, `case...in`, `for...in`) -> **Opus**
+2. `requirements.txt` lists data science packages (numpy, pandas, torch, sklearn, tensorflow, etc.) -> **Sonnet**
+3. No source files found (`.py`, `.js`, `.ts`, `.go`, `.rs`, `.java`, etc.) but markdown/rst docs exist -> **Haiku**
+
+If none match, the `default_model` from config applies.
+
+---
+
+## How the classifier works
+
+The heuristic scorer examines only the first 800 characters of each prompt (pasted logs and file contents shouldn't drag up the score). It applies three signals:
+
+- **Length**: prompts over ~1,600 characters push the score up; under ~320 characters push it down
+- **Heavy vocabulary**: architecture, refactor, review, audit, debug, investigate, root cause, security, exploit -> each distinct match raises the score by 0.12
+- **Light vocabulary**: rename, typo, format, list, show me, run tests, single file, one line, commit message -> each distinct match lowers the score by 0.12
+
+The score is clamped to [0.0, 1.0]. Below `thresholds.light` (default 0.30) -> Haiku. Above `thresholds.heavy` (default 0.65) -> Opus. In between -> Sonnet.
+
+No LLM calls. No network. Runs in under 50 ms.
+
+---
+
+## Architecture
+
+```
+~/bin/claude  (wrapper)
+    |
+    |-- advisor session-start  ->  picks model, launches claude --model <tier>
+    |
+    |-- UserPromptSubmit hook  ->  scores each prompt, injects nudge if mismatched
+    |
+    |-- Stop hook              ->  counts turns from transcript, appends to cost journal
+    |
+    +-- advisor run            ->  orchestrator decomposes goal, runner dispatches workers
+```
+
+Source layout:
+
+```
+src/architekton/
+  advisor.py       CLI entry point (classify, session-start, warn, run, report, toggle, status)
+  classifier.py    Heuristic prompt scorer
+  config.py        Config loading and resolution (global + project merge)
+  fingerprint.py   Project-type detector
+  journal.py       Cost journal: append, count turns, generate report
+  orchestrator.py  Decomposes a goal into tasks via an LLM call
+  runner.py        Parallel task executor with live ANSI TUI
+  hooks/           Shell hooks installed by install.sh
+
+src/mod/
+  architekton-warn/   Claude Code mod plugin (loads the warn hook into the editor)
+  marketplace.json
+
+config/
+  global-default.json  Factory defaults
+```
+
+---
 
 ## Tests
 
 ```bash
 bash test.sh
 ```
+
+108 tests, stdlib only, no external dependencies.
+
+---
+
+## Requirements
+
+- Python 3.9+
+- Claude Code (the `claude` CLI)
+- `jq` (used by the wrapper shell script)
+- Bash
+
+No third-party Python packages in the hot path. The classifier and all session hooks run on stdlib alone.
+
+---
+
+## License
+
+MIT. Keep the copyright notice, do what you want.
