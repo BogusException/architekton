@@ -171,6 +171,9 @@ def run_job(args):
         )
         for t in tasks_raw
     ]
+    if not tasks:
+        print("auto-brain: orchestrator returned 0 tasks -- nothing to run.", file=sys.stderr)
+        return 1
     if not show_orch:
         print(f"[auto-brain] {len(tasks)} tasks planned.", file=sys.stderr)
 
