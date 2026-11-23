@@ -2,5 +2,5 @@
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
-source .venv/bin/activate
-exec python -m unittest discover -s tests -v "$@"
+export PYTHONPATH="$SCRIPT_DIR/src${PYTHONPATH:+:$PYTHONPATH}"
+exec .venv/bin/python -m unittest discover -s tests -v "$@"
