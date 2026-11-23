@@ -144,7 +144,9 @@ def run_job(args):
     description  = " ".join(args.job)
     real_claude  = orchestrator._find_real_claude()
 
+    import time as _time
     print(f"[auto-brain] Planning with {omodel}...", file=sys.stderr)
+    ostart_time = _time.monotonic()
     try:
         tasks_raw = orchestrator.decompose(
             description, model=omodel, real_claude=real_claude,
@@ -153,6 +155,7 @@ def run_job(args):
     except Exception as error:
         print(f"auto-brain: orchestrator failed: {error}", file=sys.stderr)
         return 1
+    oend_time = _time.monotonic()
 
     tasks = [
         runner.Task(
@@ -186,6 +189,8 @@ def run_job(args):
         output_dir=output_dir,
         thinking_map=thinking_map,
         color_cfg=cfg.get("tui", {}),
+        ostart_time=ostart_time,
+        oend_time=oend_time,
     )
     return 0 if errors == 0 else 1
 

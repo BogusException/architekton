@@ -38,6 +38,7 @@ DEFAULTS = {
         "model_other":     "",
         "separator":       "dim",
         "row_bg":          "",
+        "show_orchestrator": True,
     },
 }
 VALID_MODES = ("auto", "advisory")

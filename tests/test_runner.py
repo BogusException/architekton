@@ -118,7 +118,7 @@ class TUITest(unittest.TestCase):
         buf = io.StringIO()
         with mock.patch("sys.stdout", buf):
             tui.final(tasks, "job", "opus", tick=0)
-        self.assertEqual(tui._lines, len(tasks) + 5)  # sep + title + sep + rows + sep + summary
+        self.assertEqual(tui._lines, len(tasks) + 6)  # sep + title + sep + orch_row + rows + sep + summary
 
 
 class WriteOutputTest(unittest.TestCase):

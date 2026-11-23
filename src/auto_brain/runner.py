@@ -253,6 +253,16 @@ def _resolve_thinking(task, thinking_map=None):
     return "med"
 
 
+def _resolve_thinking_for_model(model_str, thinking_map=None):
+    """Derive thinking effort label from a model string (no Task needed)."""
+    tmap = thinking_map or _DEFAULT_THINKING_MAP
+    s = model_str.lower()
+    for family, effort in tmap.items():
+        if family in s:
+            return effort
+    return "med"
+
+
 def _time_field(task):
     """Format elapsed/timeout display for a task row."""
     if task.status == Status.RUNNING and task.start_time is not None:
@@ -279,13 +289,14 @@ class _TUI:
     # status(5) + wid(6) + model(17) + thinking(8) + sep(2) + time(10) = 48
     _FIXED = 48
 
-    def __init__(self, is_tty, thinking_map=None, palette=None):
+    def __init__(self, is_tty, thinking_map=None, palette=None, show_orchestrator=True):
         self._is_tty = is_tty
         self._lines = 0
         self._thinking_map = thinking_map
         self._palette = palette
+        self._show_orchestrator = show_orchestrator
 
-    def render(self, tasks, job_title, omodel, tick):
+    def render(self, tasks, job_title, omodel, tick, ostart_time=None, oend_time=None):
         w = _term_width()
         pal = self._palette
         sep_plain = "─" * w
@@ -306,6 +317,40 @@ class _TUI:
         ]
         title_w = max(w - self._FIXED, 15)
         rows = []
+        if self._show_orchestrator:
+            oicon, odefault_color = _STATUS_STYLE[Status.COMPLETE]
+            othinking = _resolve_thinking_for_model(omodel, self._thinking_map)
+            omodel_disp = _model_display(omodel)
+            if ostart_time is not None:
+                end = oend_time if oend_time is not None else time.monotonic()
+                odur = end - ostart_time
+                otime_str = f"{odur:.1f}s"
+            else:
+                otime_str = ""
+            otitle = f"orchestrator  ({len(tasks)} tasks planned)"
+            otitle_trunc = otitle[:title_w]
+            if pal and pal.enabled:
+                rb_code = _ansi_bg(pal.row_bg())
+                field_end = _RESET_FG if rb_code else _R
+                sfg = pal.status_fg(Status.COMPLETE)
+                mfg = pal.model_fg(omodel)
+                icon_c = pal.colorize(oicon, sfg, end=field_end)
+                wid_c  = pal.colorize(f"{'orch':<4}", sfg, end=field_end)
+                mod_c  = pal.colorize(f"{omodel_disp:<15}", mfg, end=field_end)
+                body = (
+                    f"  {icon_c}  {wid_c}  {mod_c}  "
+                    f"[{othinking:<4}]  {otitle_trunc:<{title_w}}  {otime_str:>10}"
+                )
+                rows.append(f"{rb_code}{body}{_R}" if rb_code else body)
+            else:
+                rows.append(
+                    f"  {odefault_color}{oicon}{_R}  "
+                    f"{'orch':<4}  "
+                    f"{omodel_disp:<15}  "
+                    f"[{othinking:<4}]  "
+                    f"{otitle_trunc:<{title_w}}  "
+                    f"{otime_str:>10}"
+                )
         for task in tasks:
             icon, default_color = _STATUS_STYLE[task.status]
             if task.status == Status.RUNNING:
@@ -354,9 +399,9 @@ class _TUI:
             sys.stdout.flush()
         self._lines = len(all_lines)
 
-    def final(self, tasks, job_title, omodel, tick):
+    def final(self, tasks, job_title, omodel, tick, ostart_time=None, oend_time=None):
         self._lines = 0
-        self.render(tasks, job_title, omodel, tick)
+        self.render(tasks, job_title, omodel, tick, ostart_time=ostart_time, oend_time=oend_time)
 
 
 def _ready_tasks(tasks):
@@ -429,7 +474,7 @@ def _write_output(output_dir, task, stdout, stderr):
 
 def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns=20,
         job_title="", omodel="opus", cwd=None, output_dir=None, thinking_map=None,
-        color_cfg=None):
+        color_cfg=None, ostart_time=None, oend_time=None):
     """Execute a task DAG with parallel workers and a live TUI.
 
     Returns (complete_count, error_count, skipped_count).
@@ -446,7 +491,8 @@ def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns
     is_tty = sys.stdout.isatty()
     cfg = color_cfg or {}
     palette = _Palette(cfg, enabled=is_tty and cfg.get("color", True) is not False)
-    tui = _TUI(is_tty, thinking_map=thinking_map, palette=palette)
+    show_orch = cfg.get("show_orchestrator", True)
+    tui = _TUI(is_tty, thinking_map=thinking_map, palette=palette, show_orchestrator=show_orch)
     shutdown = threading.Event()
     threads = []
     tick = 0
@@ -458,7 +504,7 @@ def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns
 
     signal.signal(signal.SIGINT, _handle_sigint)
     try:
-        tui.render(tasks, job_title, omodel, tick)
+        tui.render(tasks, job_title, omodel, tick, ostart_time=ostart_time, oend_time=oend_time)
 
         while True:
             tick += 1
@@ -494,7 +540,7 @@ def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns
                 t.start()
                 running += 1
 
-            tui.render(tasks, job_title, omodel, tick)
+            tui.render(tasks, job_title, omodel, tick, ostart_time=ostart_time, oend_time=oend_time)
 
             if not any(t.status in (Status.WAITING, Status.RUNNING) for t in tasks):
                 break
@@ -505,7 +551,7 @@ def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns
     for t in threads:
         t.join(timeout=5)
 
-    tui.final(tasks, job_title, omodel, tick)
+    tui.final(tasks, job_title, omodel, tick, ostart_time=ostart_time, oend_time=oend_time)
 
     complete = sum(1 for t in tasks if t.status == Status.COMPLETE)
     errors = sum(1 for t in tasks if t.status == Status.ERROR)
