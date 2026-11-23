@@ -73,16 +73,16 @@ The nudge appears above your prompt. It never blocks or delays your message.
 One command decomposes a goal into a task DAG, then dispatches parallel Claude Code sessions -- one per task -- and displays a live TUI:
 
 ```
------------------------------------------------------------------------------
- architekton  "Build user auth API"   opus -> workers
------------------------------------------------------------------------------
-  v  orch  opus 4.7         [high]  DONE  orchestrator  (4 tasks planned)   2.1s
-  v  W1    haiku 4.5        [low ]  DONE  Create user model                 18.4s
-  v  W2    haiku 4.5        [low ]  DONE  Write auth endpoints               31.2s
-  ~  W3    haiku 4.5        [low ]  RUN   Write tests                      14s/300s
-  .  W4    haiku 4.5        [low ]  PEND  Update OpenAPI spec                  --
------------------------------------------------------------------------------
-  2 complete, 1 running, 1 waiting
+─────────────────────────────────────────────────────────────────────────────
+ architekton  "Build user auth API"   opus → workers
+─────────────────────────────────────────────────────────────────────────────
+  ✓  orch  opus 4.7         [high]  DONE  orchestrator  (4 tasks planned)   2.1s
+  ✓  W1    haiku 4.5        [low ]  DONE  Create user model                 18.4s
+  ✓  W2    haiku 4.5        [low ]  DONE  Write auth endpoints               31.2s
+  ⠸  W3    haiku 4.5        [low ]  RUN   Write tests                      14s/300s
+  ·  W4    haiku 4.5        [low ]  PEND  Update OpenAPI spec                  --
+─────────────────────────────────────────────────────────────────────────────
+  2 complete · 1 running · 1 waiting
 ```
 
 The orchestrator (Opus by default) plans the work. Workers (Haiku by default) execute in parallel. Task output is saved per-worker to `~/.claude/architekton/jobs/<timestamp>/<task_id>.txt`.
@@ -195,9 +195,9 @@ Full config reference with all keys and extension points: `docs/customizing.md`.
 
 The fingerprint detector runs at session start to bias model selection before any prompts are scored. It checks (in priority order):
 
-1. `.mkproj` present and bash-heavy (3+ of: `#!/bin/bash`, function declarations, `if [`, `case...in`, `for...in`) -> **Opus**
-2. `requirements.txt` lists data science packages (numpy, pandas, torch, sklearn, tensorflow, etc.) -> **Sonnet**
-3. No source files found (`.py`, `.js`, `.ts`, `.go`, `.rs`, `.java`, etc.) but markdown/rst docs exist -> **Haiku**
+1. `.mkproj` present and bash-heavy (3+ of: `#!/bin/bash`, function declarations, `if [`, `case...in`, `for...in`) → **Opus**
+2. `requirements.txt` lists data science packages (numpy, pandas, torch, sklearn, tensorflow, etc.) → **Sonnet**
+3. No source files found (`.py`, `.js`, `.ts`, `.go`, `.rs`, `.java`, etc.) but markdown/rst docs exist → **Haiku**
 
 If none match, the `default_model` from config applies.
 
@@ -208,8 +208,8 @@ If none match, the `default_model` from config applies.
 The heuristic scorer examines only the first 800 characters of each prompt (pasted logs and file contents shouldn't drag up the score). It applies three signals:
 
 - **Length**: prompts over ~1,600 characters push the score up; under ~320 characters push it down
-- **Heavy vocabulary**: architecture, refactor, review, audit, debug, investigate, root cause, security, exploit -> each distinct match raises the score by 0.12
-- **Light vocabulary**: rename, typo, format, list, show me, run tests, single file, one line, commit message -> each distinct match lowers the score by 0.12
+- **Heavy vocabulary**: architecture, refactor, review, audit, debug, investigate, root cause, security, exploit → each distinct match raises the score by 0.12
+- **Light vocabulary**: rename, typo, format, list, show me, run tests, single file, one line, commit message → each distinct match lowers the score by 0.12
 
 The score is clamped to [0.0, 1.0]. Below `thresholds.light` (default 0.30) -> Haiku. Above `thresholds.heavy` (default 0.65) -> Opus. In between -> Sonnet.
 
@@ -221,14 +221,14 @@ No LLM calls. No network. Runs in under 50 ms.
 
 ```
 ~/bin/claude  (wrapper)
-    |
-    |-- advisor session-start  ->  picks model, launches claude --model <tier>
-    |
-    |-- UserPromptSubmit hook  ->  scores each prompt, injects nudge if mismatched
-    |
-    |-- Stop hook              ->  counts turns from transcript, appends to cost journal
-    |
-    +-- advisor run            ->  orchestrator decomposes goal, runner dispatches workers
+    │
+    ├── advisor session-start  →  picks model, launches claude --model <tier>
+    │
+    ├── UserPromptSubmit hook  →  scores each prompt, injects nudge if mismatched
+    │
+    ├── Stop hook              →  counts turns from transcript, appends to cost journal
+    │
+    └── advisor run            →  orchestrator decomposes goal, runner dispatches workers
 ```
 
 Source layout:
