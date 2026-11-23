@@ -2,11 +2,11 @@
 
 ## 1. Configuration
 
-Config files are JSON. The global file is `~/.claude/smartmodel/config.json`; project overrides go in `.claude/smartmodel.json` at the project root. Project keys win over global keys. See `config/global-default.json` and `config/project-default.json` for templates.
+Config files are JSON. The global file is `~/.claude/architekton/config.json`; project overrides go in `.claude/architekton.json` at the project root. Project keys win over global keys. See `config/global-default.json` and `config/project-default.json` for templates.
 
 | Key | Default | Effect |
 |-----|---------|--------|
-| `enabled` | `true` | Set `false` to disable auto-brain globally without uninstalling |
+| `enabled` | `true` | Set `false` to disable architekton globally without uninstalling |
 | `mode` | `"auto"` | `"auto"` selects model at session start; `"advisory"` only warns mid-session |
 | `default_model` | `"sonnet"` | Model used when no fingerprint matches and no higher-priority config is set |
 | `models.haiku` | `"haiku"` | Alias or full model ID to use for the haiku tier |
@@ -56,32 +56,32 @@ Case is ignored (`HIGH`, `Med`, `high` all work). Unknown values pass through wi
 
 ```bash
 # Use a different orchestrator for one job
-PYTHONPATH=src python -m auto_brain.advisor run --orchestrator-model sonnet "my goal"
+PYTHONPATH=src python -m architekton.advisor run --orchestrator-model sonnet "my goal"
 
 # Override worker model, parallelism, and timeout
-PYTHONPATH=src python -m auto_brain.advisor run \
+PYTHONPATH=src python -m architekton.advisor run \
   --worker-model sonnet \
   --max-parallel 2 \
   --timeout 600 \
   "build a REST API"
 
 # Force all workers to high thinking effort
-PYTHONPATH=src python -m auto_brain.advisor run --thinking high "audit the codebase"
+PYTHONPATH=src python -m architekton.advisor run --thinking high "audit the codebase"
 ```
 
-Run `python -m auto_brain.advisor run --help` for the full flag reference.
+Run `python -m architekton.advisor run --help` for the full flag reference.
 
-**Environment override:** Set `SMARTMODEL_DISABLE=1` to bypass auto-brain for one session without touching config.
+**Environment override:** Set `ARCHITEKTON_DISABLE=1` to bypass architekton for one session without touching config.
 
 ## 2. Extension points
 
-- **To add a new fingerprint rule:** edit `src/auto_brain/fingerprint.py`. Add a new block in `detect()` before the `return {"tier": None, ...}` line. Follow the existing pattern: read a file, check a condition, return early with a tier and reason string.
-- **To add a new complexity signal:** edit `src/auto_brain/classifier.py`. Add a pattern to `HEAVY_PATTERNS` or `LIGHT_PATTERNS`. Each distinct match adds or subtracts `SIGNAL_WEIGHT` (0.12) from the score.
-- **To add a new CLI subcommand:** add a `run_*` function and register it in `build_parser()` in `src/auto_brain/advisor.py`.
+- **To add a new fingerprint rule:** edit `src/architekton/fingerprint.py`. Add a new block in `detect()` before the `return {"tier": None, ...}` line. Follow the existing pattern: read a file, check a condition, return early with a tier and reason string.
+- **To add a new complexity signal:** edit `src/architekton/classifier.py`. Add a pattern to `HEAVY_PATTERNS` or `LIGHT_PATTERNS`. Each distinct match adds or subtracts `SIGNAL_WEIGHT` (0.12) from the score.
+- **To add a new CLI subcommand:** add a `run_*` function and register it in `build_parser()` in `src/architekton/advisor.py`.
 
 ## 3. Changing default behaviour
 
-- **Force a specific model for a project:** add `"default_model": "opus"` to `.claude/smartmodel.json` in that project root.
+- **Force a specific model for a project:** add `"default_model": "opus"` to `.claude/architekton.json` in that project root.
 - **Use a pinned model ID instead of an alias:** set `"models": {"opus": "claude-opus-4-7"}` in global config to map the tier to a specific model version.
 - **Raise the threshold for Opus:** increase `thresholds.heavy` above `0.65` to require higher complexity before recommending Opus.
 - **Switch to advisory-only mode:** set `"mode": "advisory"` to disable automatic model selection at session start while keeping the mid-session warn hook active.

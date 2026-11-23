@@ -1,4 +1,4 @@
-"""Load and merge auto-brain config from global and project scope."""
+"""Load and merge architekton config from global and project scope."""
 
 import json
 import os
@@ -51,7 +51,7 @@ _KNOWN_MODEL_FAMILIES = frozenset({"haiku", "sonnet", "opus"})
 
 def _warn(msg):
     import sys
-    print(f"[auto-brain config] {msg}", file=sys.stderr)
+    print(f"[architekton config] {msg}", file=sys.stderr)
 
 
 def _looks_like_model(s):
@@ -111,7 +111,7 @@ def get_claude_dir():
 
 
 def get_global_config_path():
-    return get_claude_dir() / "smartmodel" / "config.json"
+    return get_claude_dir() / "architekton" / "config.json"
 
 
 def get_project_dir():
@@ -119,7 +119,7 @@ def get_project_dir():
 
 
 def get_project_config_path(project_dir=None):
-    return (project_dir or get_project_dir()) / ".claude" / "smartmodel.json"
+    return (project_dir or get_project_dir()) / ".claude" / "architekton.json"
 
 
 def read_json(path):
@@ -154,7 +154,7 @@ def load(project_dir=None):
 
 
 def is_enabled(config):
-    return bool(config["enabled"]) and os.environ.get("SMARTMODEL_DISABLE") != "1"
+    return bool(config["enabled"]) and os.environ.get("ARCHITEKTON_DISABLE") != "1"
 
 
 def resolve_model(project_dir=None):
@@ -166,8 +166,8 @@ def resolve_model(project_dir=None):
     project_dir = project_dir or get_project_dir()
     candidates = (
         ("project .claude/settings.json", read_json(project_dir / ".claude" / "settings.json").get("model")),
-        ("project .claude/smartmodel.json", read_json(get_project_config_path(project_dir)).get("default_model")),
-        ("global smartmodel config", read_json(get_global_config_path()).get("default_model")),
+        ("project .claude/architekton.json", read_json(get_project_config_path(project_dir)).get("default_model")),
+        ("global architekton config", read_json(get_global_config_path()).get("default_model")),
         ("global ~/.claude/settings.json", read_json(get_claude_dir() / "settings.json").get("model")),
     )
     for source, model in candidates:

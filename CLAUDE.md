@@ -1,10 +1,10 @@
 # CLAUDE.md
 
-## Project: auto-brain
+## Project: architekton
 
-auto-brain is a model-level advisor and cost governor for Claude Code. It automatically selects the right Claude model (Opus / Sonnet / Haiku) at session start based on project type and prompt complexity, injects mid-session mismatch warnings via a `UserPromptSubmit` hook, and tracks per-project spend in a cost journal.
+architekton is a model-level advisor and cost governor for Claude Code. It automatically selects the right Claude model (Opus / Sonnet / Haiku) at session start based on project type and prompt complexity, injects mid-session mismatch warnings via a `UserPromptSubmit` hook, and tracks per-project spend in a cost journal.
 
-**Design origin:** `responses/origin-20261121130154_smartmodel-design.txt`
+**Design origin:** `responses/origin-20261121130154_architekton-design.txt`
 **Architecture:** `docs/architecture.md`
 **Task list:** `tasks/todo.md`
 

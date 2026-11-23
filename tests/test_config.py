@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from auto_brain import config
+from architekton import config
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -18,21 +18,21 @@ class ConfigTest(unittest.TestCase):
         root = Path(tmp.name)
         self.claude_dir = root / "claude"
         self.project = root / "project"
-        (self.claude_dir / "smartmodel").mkdir(parents=True)
+        (self.claude_dir / "architekton").mkdir(parents=True)
         (self.project / ".claude").mkdir(parents=True)
         env = mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.claude_dir)})
         env.start()
         self.addCleanup(env.stop)
-        os.environ.pop("SMARTMODEL_DISABLE", None)
+        os.environ.pop("ARCHITEKTON_DISABLE", None)
 
     def write(self, path, data):
         path.write_text(json.dumps(data), encoding="utf-8")
 
     def global_config(self, data):
-        self.write(self.claude_dir / "smartmodel" / "config.json", data)
+        self.write(self.claude_dir / "architekton" / "config.json", data)
 
     def project_config(self, data):
-        self.write(self.project / ".claude" / "smartmodel.json", data)
+        self.write(self.project / ".claude" / "architekton.json", data)
 
     def project_settings(self, data):
         self.write(self.project / ".claude" / "settings.json", data)
@@ -62,17 +62,17 @@ class ConfigTest(unittest.TestCase):
         self.global_config({"default_model": "sonnet"})
         self.assertEqual(config.resolve_model(self.project)[0], "sonnet")
         self.project_config({"default_model": "opus"})
-        self.assertEqual(config.resolve_model(self.project), ("opus", "project .claude/smartmodel.json"))
+        self.assertEqual(config.resolve_model(self.project), ("opus", "project .claude/architekton.json"))
         self.project_settings({"model": "haiku"})
         self.assertEqual(config.resolve_model(self.project), ("haiku", "project .claude/settings.json"))
 
     def test_disable_env_wins(self):
         self.assertTrue(config.is_enabled(config.load(self.project)))
-        with mock.patch.dict(os.environ, {"SMARTMODEL_DISABLE": "1"}):
+        with mock.patch.dict(os.environ, {"ARCHITEKTON_DISABLE": "1"}):
             self.assertFalse(config.is_enabled(config.load(self.project)))
 
     def test_invalid_json_raises(self):
-        (self.claude_dir / "smartmodel" / "config.json").write_text("{nope", encoding="utf-8")
+        (self.claude_dir / "architekton" / "config.json").write_text("{nope", encoding="utf-8")
         with self.assertRaises(config.ConfigError):
             config.load(self.project)
 
@@ -84,7 +84,7 @@ class ConfigTest(unittest.TestCase):
     def test_set_global_enabled_keeps_other_keys(self):
         self.global_config({"default_model": "opus"})
         config.set_global_enabled(False)
-        saved = json.loads((self.claude_dir / "smartmodel" / "config.json").read_text(encoding="utf-8"))
+        saved = json.loads((self.claude_dir / "architekton" / "config.json").read_text(encoding="utf-8"))
         self.assertEqual(saved, {"default_model": "opus", "enabled": False})
 
     def test_global_template_matches_defaults(self):

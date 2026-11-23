@@ -1,11 +1,11 @@
 {
-  "name": "auto-brain",
-  "owner": { "name": "auto-brain" },
+  "name": "architekton",
+  "owner": { "name": "architekton" },
   "plugins": [
     {
-      "name": "auto-brain-warn",
+      "name": "architekton-warn",
       "description": "Warns when prompt complexity doesn't match the current model tier.",
-      "source": "./auto-brain-warn"
+      "source": "./architekton-warn"
     }
   ]
 }

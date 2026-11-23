@@ -1,0 +1,6 @@
+{
+  "name": "architekton-warn",
+  "version": "0.1.0",
+  "description": "Warns when prompt complexity doesn't match the current model tier. Part of architekton.",
+  "author": { "name": "architekton" }
+}

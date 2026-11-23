@@ -60,7 +60,7 @@ def detect(project_dir=None):
       3. docs-only, no source code -> haiku
     """
     if project_dir is None:
-        from auto_brain.config import get_project_dir
+        from architekton.config import get_project_dir
         project_dir = get_project_dir()
     project_dir = Path(project_dir)
 

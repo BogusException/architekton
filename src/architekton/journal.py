@@ -18,7 +18,7 @@ _DEFAULT_PRICING = {
 
 def _journal_path():
     base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
-    return Path(base) / "smartmodel" / "cost-journal.jsonl"
+    return Path(base) / "architekton" / "cost-journal.jsonl"
 
 
 def _tier_for_model(model):

@@ -3,7 +3,7 @@ import os
 import unittest
 from unittest import mock
 
-from auto_brain import orchestrator
+from architekton import orchestrator
 
 
 class ExtractTasksTest(unittest.TestCase):
@@ -102,12 +102,12 @@ class DecomposeTest(unittest.TestCase):
         self.assertIn("--model=opus", args)
         self.assertIn("--print", args)
 
-    def test_sets_smartmodel_disable_in_env(self):
+    def test_sets_architekton_disable_in_env(self):
         tasks = [{"id": "1", "prompt": "Do it"}]
         with self._mock_run(tasks) as mock_run:
             orchestrator.decompose("Build", real_claude="/usr/bin/claude")
         env = mock_run.call_args[1]["env"]
-        self.assertEqual(env.get("SMARTMODEL_DISABLE"), "1")
+        self.assertEqual(env.get("ARCHITEKTON_DISABLE"), "1")
 
     def test_preamble_prepended_to_prompt(self):
         tasks = [{"id": "1", "prompt": "Do it"}]

@@ -20,7 +20,7 @@ Model selection guide (default "haiku" unless the task clearly warrants more):
 - "sonnet" -- moderate tasks: multi-file edits, analysis across a few files, medium-complexity research
 - "opus"   -- complex tasks: test execution, full-codebase reasoning, architectural decisions, synthesis
 
-Thinking effort (optional; omit to let auto-brain derive from model):
+Thinking effort (optional; omit to let architekton derive from model):
 - "low"  -- routine mechanical work         (haiku default)
 - "med"  -- moderate analysis               (sonnet default)
 - "high" -- deep reasoning required         (opus default)
@@ -39,11 +39,11 @@ Job: {job_description}
 
 
 def _find_real_claude():
-    """Locate the real claude binary, bypassing any auto-brain wrapper."""
+    """Locate the real claude binary, bypassing any architekton wrapper."""
     env_path = os.environ.get("AUTO_BRAIN_REAL_CLAUDE", "")
     if env_path and os.access(env_path, os.X_OK):
         return env_path
-    brain_home = Path(os.environ.get("CLAUDE_CONFIG_DIR", "") or Path.home() / ".claude") / "smartmodel"
+    brain_home = Path(os.environ.get("CLAUDE_CONFIG_DIR", "") or Path.home() / ".claude") / "architekton"
     recorded = brain_home / "real-claude"
     if recorded.is_file():
         path = recorded.read_text(encoding="utf-8").strip()
@@ -104,7 +104,7 @@ def decompose(job_description, model="opus", timeout=120, real_claude=None,
     if real_claude is None:
         real_claude = _find_real_claude()
     prompt = preamble + _DECOMPOSE_PROMPT.format(job_description=job_description.strip())
-    env = {**os.environ, "SMARTMODEL_DISABLE": "1"}
+    env = {**os.environ, "ARCHITEKTON_DISABLE": "1"}
     result = subprocess.run(
         [real_claude, "--print", f"--model={model}", "-p", prompt],
         capture_output=True,

@@ -2,9 +2,9 @@
 
 ## 1. Overview
 
-auto-brain is a model-level advisor and cost governor for Claude Code. It automatically selects the right Claude model (Opus / Sonnet / Haiku) at session start based on project type and prompt complexity, warns mid-session when the current model is mismatched for the task, and tracks spend over time.
+architekton is a model-level advisor and cost governor for Claude Code. It automatically selects the right Claude model (Opus / Sonnet / Haiku) at session start based on project type and prompt complexity, warns mid-session when the current model is mismatched for the task, and tracks spend over time.
 
-Claude Code has no built-in automatic model switching. The only native controls are `--model <alias>` at launch, the `"model"` key in `settings.json`, `--fallback-model` (overload only), and `--max-budget-usd` (non-interactive `--print` mode only). auto-brain fills the gap.
+Claude Code has no built-in automatic model switching. The only native controls are `--model <alias>` at launch, the `"model"` key in `settings.json`, `--fallback-model` (overload only), and `--max-budget-usd` (non-interactive `--print` mode only). architekton fills the gap.
 
 The core constraint: Claude Code has no mid-session model switching API. All automatic selection happens at session start via a wrapper script. Mid-session behavior is advisory -- a `UserPromptSubmit` hook injects a one-line nudge when complexity diverges from the current model.
 
@@ -12,24 +12,24 @@ The core constraint: Claude Code has no mid-session model switching API. All aut
 
 | Component | Responsibility | File or module |
 |---|---|---|
-| Wrapper script | Reads project/global config, picks model, launches `claude --model <x>` | `src/auto_brain/hooks/claude-wrapper.sh` -> `~/bin/claude` |
-| Advisor | CLI entry point: classify, session-start, toggle, status, report, run | `src/auto_brain/advisor.py` |
-| Classifier | Heuristic complexity scorer. No LLM calls. Fast and free. | `src/auto_brain/classifier.py` |
-| Fingerprint | Project-type detector: reads `.mkproj`, `CLAUDE.md`, `requirements.txt` to bias model | `src/auto_brain/fingerprint.py` |
-| Config | Loads global + project configs, merges with priority order | `src/auto_brain/config.py` |
-| Journal | Per-session cost journal read/write | `src/auto_brain/journal.py` |
-| Orchestrator | Calls a high-model to decompose a job into a task DAG | `src/auto_brain/orchestrator.py` |
-| Runner | Executes task DAG with parallel workers and a live ANSI TUI | `src/auto_brain/runner.py` |
-| Warn hook | `UserPromptSubmit` hook: classifies prompt, injects mismatch warning | `src/auto_brain/hooks/smartmodel-warn.sh` |
-| Journal hook | `Stop` hook: counts turns, appends session record to cost journal | `src/auto_brain/hooks/cost-journal.sh` |
+| Wrapper script | Reads project/global config, picks model, launches `claude --model <x>` | `src/architekton/hooks/claude-wrapper.sh` -> `~/bin/claude` |
+| Advisor | CLI entry point: classify, session-start, toggle, status, report, run | `src/architekton/advisor.py` |
+| Classifier | Heuristic complexity scorer. No LLM calls. Fast and free. | `src/architekton/classifier.py` |
+| Fingerprint | Project-type detector: reads `.mkproj`, `CLAUDE.md`, `requirements.txt` to bias model | `src/architekton/fingerprint.py` |
+| Config | Loads global + project configs, merges with priority order | `src/architekton/config.py` |
+| Journal | Per-session cost journal read/write | `src/architekton/journal.py` |
+| Orchestrator | Calls a high-model to decompose a job into a task DAG | `src/architekton/orchestrator.py` |
+| Runner | Executes task DAG with parallel workers and a live ANSI TUI | `src/architekton/runner.py` |
+| Warn hook | `UserPromptSubmit` hook: classifies prompt, injects mismatch warning | `src/architekton/hooks/architekton-warn.sh` |
+| Journal hook | `Stop` hook: counts turns, appends session record to cost journal | `src/architekton/hooks/cost-journal.sh` |
 | Installer | Copies wrapper, registers hooks, writes global config | `install.sh` |
 
 ## 3. Config hierarchy (highest to lowest priority)
 
 1. `--model <alias>` passed explicitly on command line -- always wins, wrapper passes it through
 2. `.claude/settings.json` `"model"` key (project scope, existing native mechanism)
-3. `.claude/smartmodel.json` (project scope, auto-brain specific)
-4. `~/.claude/smartmodel/config.json` (global, auto-brain)
+3. `.claude/architekton.json` (project scope, architekton specific)
+4. `~/.claude/architekton/config.json` (global, architekton)
 5. `~/.claude/settings.json` `"model"` key (global native)
 
 ## 4. Data flow
@@ -40,7 +40,7 @@ user runs: claude [args]
       |
 ~/bin/claude (wrapper)
       |
-      +-- config.py: load ~/.claude/smartmodel/config.json + .claude/smartmodel.json
+      +-- config.py: load ~/.claude/architekton/config.json + .claude/architekton.json
       |     disabled? -> exec real claude directly
       |     explicit --model in args? -> pass through unchanged
       |
@@ -52,21 +52,21 @@ user runs: claude [args]
       +-- map bias to tier -> model string
       |
       exec real_claude --model <model> [original args]
-      prints: [auto-brain] Starting with opus (project-fingerprint)
+      prints: [architekton] Starting with opus (project-fingerprint)
 ```
 
 ### Mid-session advisory
 ```
 each user prompt
       |
-smartmodel-warn.sh (UserPromptSubmit hook)
+architekton-warn.sh (UserPromptSubmit hook)
       |
       +-- advisor.py warn parses the hook JSON from stdin (prompt field)
       +-- classifier.py classify -> {score, tier, recommended_model}
-      +-- current model: $AUTO_BRAIN_MODEL (set by the wrapper), else $CLAUDE_MODEL
+      +-- current model: $ARCHITEKTON_MODEL (set by the wrapper), else $CLAUDE_MODEL
       |
       +-- if mismatch:
-      |     additionalContext = "[auto-brain] Complexity suggests <model>
+      |     additionalContext = "[architekton] Complexity suggests <model>
       |                         (you are on <current>). Restart: claude --model <model>"
       |
       +-- if match or disabled:
@@ -83,7 +83,7 @@ Stop hook (cost-journal.sh)
             |
             journal.py session_end(model, turns)
             |
-            appends one line to ~/.claude/smartmodel/cost-journal.jsonl:
+            appends one line to ~/.claude/architekton/cost-journal.jsonl:
             {"date":..., "project":..., "model":..., "turns":..., "heavy_prompts":..., "light_prompts":...}
 ```
 
@@ -94,7 +94,7 @@ advisor.py run "Build the auth module"
       orchestrator.py decompose()
             |
             calls: real_claude --print --model opus -p "<decompose_prompt>"
-            env: SMARTMODEL_DISABLE=1
+            env: ARCHITEKTON_DISABLE=1
             parses: JSON task list [{id, title, prompt, model, depends_on}, ...]
       |
       runner.py run(tasks, ...)
@@ -104,14 +104,14 @@ advisor.py run "Build the auth module"
             |
             for each ready task (up to max_parallel concurrent):
                 thread -> real_claude --print --model <task.model> --max-turns N -p "<task_prompt>"
-                env: SMARTMODEL_DISABLE=1
-                on complete: status=COMPLETE, write ~/.claude/smartmodel/jobs/<ts>/<id>.txt
+                env: ARCHITEKTON_DISABLE=1
+                on complete: status=COMPLETE, write ~/.claude/architekton/jobs/<ts>/<id>.txt
                 on failure or timeout: status=ERROR
             |
             main thread redraws ANSI TUI every 100ms:
 
             ─────────────────────────────────────────────────────────────────────
-             auto-brain  "Build user auth"                      opus 4.7 → workers
+             architekton  "Build user auth"                      opus 4.7 → workers
             ─────────────────────────────────────────────────────────────────────
               ✓  W1   haiku 4.5       [low ]  Create user model           4.2s
               ⠸  W2   opus 4.7        [high]  Run test suite            42s/300s

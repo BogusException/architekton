@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from auto_brain.runner import (
+from architekton.runner import (
     Status, Task, _ready_tasks, _has_failed_dep, _TUI, _write_output, run,
     _model_display, _resolve_thinking, _time_field,
     _normalize_thinking, _VALID_THINKING, _THINKING_ALIASES,
@@ -99,7 +99,7 @@ class TUITest(unittest.TestCase):
 
     def test_renders_without_crash_non_tty(self):
         output = self._render(is_tty=False)
-        self.assertIn("auto-brain", output)
+        self.assertIn("architekton", output)
 
     def test_renders_without_crash_tty(self):
         output = self._render(is_tty=True)
@@ -109,7 +109,7 @@ class TUITest(unittest.TestCase):
 
     def test_non_tty_prints_summary_line(self):
         output = self._render(is_tty=False)
-        self.assertIn("[auto-brain]", output)
+        self.assertIn("[architekton]", output)
 
     def test_final_forces_full_redraw(self):
         tui = _TUI(is_tty=False)
@@ -160,7 +160,7 @@ class RunIntegrationTest(unittest.TestCase):
 
     def test_all_complete(self):
         tasks = [Task(id="1", title="T1", prompt="p1"), Task(id="2", title="T2", prompt="p2")]
-        with mock.patch("auto_brain.runner._worker", side_effect=self._fake_worker()):
+        with mock.patch("architekton.runner._worker", side_effect=self._fake_worker()):
             with mock.patch("sys.stdout", io.StringIO()):
                 complete, errors, skipped = run(
                     tasks, real_claude="/fake/claude", output_dir=self.tmp
@@ -180,7 +180,7 @@ class RunIntegrationTest(unittest.TestCase):
             else:
                 self._fake_worker(Status.COMPLETE)(task, *args, **kwargs)
 
-        with mock.patch("auto_brain.runner._worker", side_effect=patched_worker):
+        with mock.patch("architekton.runner._worker", side_effect=patched_worker):
             with mock.patch("sys.stdout", io.StringIO()):
                 complete, errors, skipped = run(
                     [t1, t2, t3], real_claude="/fake/claude", output_dir=self.tmp

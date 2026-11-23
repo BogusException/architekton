@@ -13,7 +13,7 @@ Verify PATH order: `which claude` should resolve to `~/bin/claude` after install
 
 ## 2. Setup
 
-1. Clone the repo: `git clone <repo-url> && cd auto-brain`
+1. Clone the repo: `git clone <repo-url> && cd architekton`
 2. Create the venv: `python -m venv .venv && source .venv/bin/activate`
 3. Install development dependencies: `pip install -r requirements.txt`
 4. Run the installer: `bash install.sh`
@@ -27,7 +27,7 @@ The installer is idempotent. Running it again on an already-installed system is 
 which claude   # should show ~/bin/claude
 
 # Check current config and detected model
-PYTHONPATH=src python -m auto_brain.advisor status
+PYTHONPATH=src python -m architekton.advisor status
 
 # Run the full test suite
 bash test.sh   # all 37 tests should pass

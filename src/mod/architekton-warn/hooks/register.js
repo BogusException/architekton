@@ -1,4 +1,4 @@
-// Complexity scoring constants (ported from auto_brain/classifier.py)
+// Complexity scoring constants (ported from architekton/classifier.py)
 const BASE_SCORE = 0.5
 const SIGNAL_WEIGHT = 0.12
 const LONG_PROMPT_TOKENS = 400
@@ -60,7 +60,7 @@ export function register(on) {
       const recommended = tierForScore(value)
       if (recommended === currentTier) return next(e)
 
-      const context = `[auto-brain] Prompt complexity suggests ${recommended} (score ${value}). You are on ${model}. Switch: /model ${recommended}`
+      const context = `[architekton] Prompt complexity suggests ${recommended} (score ${value}). You are on ${model}. Switch: /model ${recommended}`
       return next({ ...e, context })
     } catch {
       return next(e)

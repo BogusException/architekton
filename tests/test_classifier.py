@@ -1,7 +1,7 @@
 import unittest
 
-from auto_brain import classifier
-from auto_brain.config import DEFAULTS
+from architekton import classifier
+from architekton.config import DEFAULTS
 
 
 class ScoreTest(unittest.TestCase):

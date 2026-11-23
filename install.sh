@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# Installs auto-brain: package + hook into ~/.claude/smartmodel, wrapper into ~/bin/claude,
+# Installs architekton: package + hook into ~/.claude/architekton, wrapper into ~/bin/claude,
 # hook registration in ~/.claude/settings.json. Safe to re-run.
 #
 # Flags:
 #   --yes / -y                skip all prompts, accept defaults
-#   AUTO_BRAIN_NONINTERACTIVE=1   same effect via environment
+#   ARCHITEKTON_NONINTERACTIVE=1   same effect via environment
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-BRAIN_HOME="$CLAUDE_DIR/smartmodel"
-BIN_DIR="${AUTO_BRAIN_BIN_DIR:-$HOME/bin}"
+BRAIN_HOME="$CLAUDE_DIR/architekton"
+BIN_DIR="${ARCHITEKTON_BIN_DIR:-$HOME/bin}"
 WRAPPER="$BIN_DIR/claude"
-HOOK="$BRAIN_HOME/lib/auto_brain/hooks/smartmodel-warn.sh"
-JOURNAL_HOOK="$BRAIN_HOME/lib/auto_brain/hooks/cost-journal.sh"
+HOOK="$BRAIN_HOME/lib/architekton/hooks/architekton-warn.sh"
+JOURNAL_HOOK="$BRAIN_HOME/lib/architekton/hooks/cost-journal.sh"
 SETTINGS="$CLAUDE_DIR/settings.json"
-MARKER="# auto-brain-wrapper"
+MARKER="# architekton-wrapper"
 
 # Interactive mode: disabled by env var or --yes/-y flag.
 INTERACTIVE=1
-[[ "${AUTO_BRAIN_NONINTERACTIVE:-0}" == "1" ]] && INTERACTIVE=0
+[[ "${ARCHITEKTON_NONINTERACTIVE:-0}" == "1" ]] && INTERACTIVE=0
 for _arg in "$@"; do
   [[ "$_arg" == "--yes" || "$_arg" == "-y" ]] && INTERACTIVE=0
 done
@@ -95,7 +95,7 @@ backup_file() {
 
 # 1. Refuse before changing anything if the wrapper slot holds something we cannot account for.
 if [[ -e "$WRAPPER" || -L "$WRAPPER" ]] && ! grep -qF "$MARKER" "$WRAPPER" 2>/dev/null && [[ ! -L "$WRAPPER" ]]; then
-  die "$WRAPPER exists and is not an auto-brain wrapper. Move it, or set AUTO_BRAIN_BIN_DIR."
+  die "$WRAPPER exists and is not an architekton wrapper. Move it, or set ARCHITEKTON_BIN_DIR."
 fi
 if [[ -s "$SETTINGS" ]]; then
   jq empty "$SETTINGS" 2>/dev/null || die "$SETTINGS is not valid JSON. Fix it first."
@@ -103,9 +103,9 @@ fi
 
 # 2. Package and hook.
 mkdir -p "$BRAIN_HOME/lib"
-rm -rf "$BRAIN_HOME/lib/auto_brain"
-cp -r "$REPO/src/auto_brain" "$BRAIN_HOME/lib/auto_brain"
-find "$BRAIN_HOME/lib/auto_brain" -name __pycache__ -prune -exec rm -rf {} +
+rm -rf "$BRAIN_HOME/lib/architekton"
+cp -r "$REPO/src/architekton" "$BRAIN_HOME/lib/architekton"
+find "$BRAIN_HOME/lib/architekton" -name __pycache__ -prune -exec rm -rf {} +
 chmod +x "$HOOK"
 
 # 3. Global config. Never overwrite a user's edits.
@@ -123,7 +123,7 @@ if [[ -L "$WRAPPER" ]]; then
 elif [[ -e "$WRAPPER" ]]; then
   rm "$WRAPPER"
 fi
-cp "$REPO/src/auto_brain/hooks/claude-wrapper.sh" "$WRAPPER"
+cp "$REPO/src/architekton/hooks/claude-wrapper.sh" "$WRAPPER"
 chmod +x "$WRAPPER"
 
 # 5. Register the UserPromptSubmit hook.
@@ -157,26 +157,26 @@ else
 fi
 
 # 7. Skill installation (optional).
-SKILL_SRC="$REPO/skills/auto-brain"
-SKILL_DEST="$CLAUDE_DIR/skills/auto-brain"
+SKILL_SRC="$REPO/skills/architekton"
+SKILL_DEST="$CLAUDE_DIR/skills/architekton"
 
 if [[ -d "$SKILL_SRC" ]]; then
   echo ""
-  echo "=== Optional: /auto-brain skill ==="
-  echo "  The /auto-brain skill adds a /auto-brain slash command for the job runner."
+  echo "=== Optional: /architekton skill ==="
+  echo "  The /architekton skill adds a /architekton slash command for the job runner."
   echo "  You can also allow the AI model to suggest it proactively (default: off)."
   echo ""
-  _install_skill=$(ask "Install the /auto-brain skill to $SKILL_DEST?" "Y")
+  _install_skill=$(ask "Install the /architekton skill to $SKILL_DEST?" "Y")
   if [[ "$_install_skill" == "y" ]]; then
     mkdir -p "$SKILL_DEST"
     cp -r "$SKILL_SRC"/. "$SKILL_DEST/"
-    chmod +x "$SKILL_DEST/auto-brain.sh"
+    chmod +x "$SKILL_DEST/architekton.sh"
     _allow_model=$(ask "Allow the AI model to suggest the job runner proactively?" "N")
     if [[ "$_allow_model" == "y" ]]; then
       sed -i 's/^disable-model-invocation: true/disable-model-invocation: false/' "$SKILL_DEST/SKILL.md"
-      echo "  set: model-invocable -- AI can suggest /auto-brain when appropriate"
+      echo "  set: model-invocable -- AI can suggest /architekton when appropriate"
     else
-      echo "  set: user-only -- invoke with /auto-brain run \"...\""
+      echo "  set: user-only -- invoke with /architekton run \"...\""
     fi
     echo "  installed: $SKILL_DEST"
   else
@@ -184,16 +184,16 @@ if [[ -d "$SKILL_SRC" ]]; then
   fi
 fi
 
-# 8. Mod installation (auto-brain-warn: in-process warn hook via Claude Code mods API).
+# 8. Mod installation (architekton-warn: in-process warn hook via Claude Code mods API).
 MOD_SRC="$REPO/src/mod"
 MOD_DEST="$BRAIN_HOME/mods"
 
 mkdir -p "$MOD_DEST/.claude-plugin"
-cp -r "$MOD_SRC/auto-brain-warn" "$MOD_DEST/"
+cp -r "$MOD_SRC/architekton-warn" "$MOD_DEST/"
 cp "$MOD_SRC/marketplace.json" "$MOD_DEST/.claude-plugin/marketplace.json"
 
 _marketplace_registered=0
-if claude plugin marketplace list 2>/dev/null | grep -q "auto-brain"; then
+if claude plugin marketplace list 2>/dev/null | grep -q "architekton"; then
   _marketplace_registered=1
 fi
 if [[ "$_marketplace_registered" == "0" ]]; then
@@ -201,17 +201,17 @@ if [[ "$_marketplace_registered" == "0" ]]; then
 fi
 
 _mod_installed=0
-if claude plugin list 2>/dev/null | grep -q "auto-brain-warn"; then
+if claude plugin list 2>/dev/null | grep -q "architekton-warn"; then
   _mod_installed=1
 fi
 if [[ "$_mod_installed" == "0" && "$_marketplace_registered" == "1" ]]; then
-  claude plugin install auto-brain-warn@auto-brain 2>/dev/null && _mod_installed=1 || true
+  claude plugin install architekton-warn@architekton 2>/dev/null && _mod_installed=1 || true
 fi
 
 if [[ "$_mod_installed" == "1" ]]; then
-  echo "mod installed: auto-brain-warn (restart Claude Code to activate)"
+  echo "mod installed: architekton-warn (restart Claude Code to activate)"
 else
-  echo "mod: could not auto-install -- run: claude plugin install auto-brain-warn@auto-brain"
+  echo "mod: could not auto-install -- run: claude plugin install architekton-warn@architekton"
 fi
 
 echo ""

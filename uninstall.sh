@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# Removes auto-brain from the system. Safe to re-run.
+# Removes architekton from the system. Safe to re-run.
 # Leaves config.json and cost-journal.jsonl (user data) intact.
 #
 # Flags:
 #   --yes / -y                      skip all prompts, accept defaults
 #   --purge                         also remove config.json and cost-journal.jsonl
-#   AUTO_BRAIN_NONINTERACTIVE=1     same as --yes via environment
+#   ARCHITEKTON_NONINTERACTIVE=1     same as --yes via environment
 set -euo pipefail
 
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-BRAIN_HOME="$CLAUDE_DIR/smartmodel"
-BIN_DIR="${AUTO_BRAIN_BIN_DIR:-$HOME/bin}"
+BRAIN_HOME="$CLAUDE_DIR/architekton"
+BIN_DIR="${ARCHITEKTON_BIN_DIR:-$HOME/bin}"
 WRAPPER="$BIN_DIR/claude"
 SETTINGS="$CLAUDE_DIR/settings.json"
-MARKER="# auto-brain-wrapper"
+MARKER="# architekton-wrapper"
 REAL_CLAUDE_FILE="$BRAIN_HOME/real-claude"
-SKILL_DEST="$CLAUDE_DIR/skills/auto-brain"
+SKILL_DEST="$CLAUDE_DIR/skills/architekton"
 
 INTERACTIVE=1
 PURGE=0
-[[ "${AUTO_BRAIN_NONINTERACTIVE:-0}" == "1" ]] && INTERACTIVE=0
+[[ "${ARCHITEKTON_NONINTERACTIVE:-0}" == "1" ]] && INTERACTIVE=0
 for _arg in "$@"; do
   [[ "$_arg" == "--yes" || "$_arg" == "-y" ]] && INTERACTIVE=0
   [[ "$_arg" == "--purge" ]] && PURGE=1
@@ -39,7 +39,7 @@ ask() {
   printf '%s\n' "${yn:0:1}" | tr '[:upper:]' '[:lower:]'
 }
 
-echo "=== auto-brain uninstall ==="
+echo "=== architekton uninstall ==="
 echo ""
 
 # 1. Remove wrapper.
@@ -65,7 +65,7 @@ if [[ -e "$WRAPPER" || -L "$WRAPPER" ]]; then
       echo "skipped wrapper removal"
     fi
   else
-    echo "SKIP: $WRAPPER exists but is not an auto-brain wrapper"
+    echo "SKIP: $WRAPPER exists but is not an architekton wrapper"
   fi
 else
   echo "wrapper not present, skipping"
@@ -74,32 +74,32 @@ fi
 # 2. Remove hooks from settings.json.
 if [[ -s "$SETTINGS" ]] && jq empty "$SETTINGS" 2>/dev/null; then
   _has_hooks=$(jq '
-    (.hooks.UserPromptSubmit // [] | map(.hooks // [] | map(.command) | flatten) | flatten | map(select(test("smartmodel"))) | length) +
-    (.hooks.Stop // [] | map(.hooks // [] | map(.command) | flatten) | flatten | map(select(test("smartmodel"))) | length)
+    (.hooks.UserPromptSubmit // [] | map(.hooks // [] | map(.command) | flatten) | flatten | map(select(test("architekton"))) | length) +
+    (.hooks.Stop // [] | map(.hooks // [] | map(.command) | flatten) | flatten | map(select(test("architekton"))) | length)
   ' "$SETTINGS")
   if [[ "$_has_hooks" -gt 0 ]]; then
-    _rm_hooks=$(ask "Remove auto-brain hooks from $SETTINGS?" "Y")
+    _rm_hooks=$(ask "Remove architekton hooks from $SETTINGS?" "Y")
     if [[ "$_rm_hooks" == "y" ]]; then
       _updated="$(jq '
-        .hooks.UserPromptSubmit |= (if . then map(select(.hooks | map(.command | test("smartmodel")) | any | not)) else . end) |
-        .hooks.Stop             |= (if . then map(select(.hooks | map(.command | test("smartmodel")) | any | not)) else . end)
+        .hooks.UserPromptSubmit |= (if . then map(select(.hooks | map(.command | test("architekton")) | any | not)) else . end) |
+        .hooks.Stop             |= (if . then map(select(.hooks | map(.command | test("architekton")) | any | not)) else . end)
       ' "$SETTINGS")"
       printf '%s\n' "$_updated" >"$SETTINGS"
-      echo "removed auto-brain hooks from $SETTINGS"
+      echo "removed architekton hooks from $SETTINGS"
     else
       echo "skipped hook removal"
     fi
   else
-    echo "no auto-brain hooks found in $SETTINGS"
+    echo "no architekton hooks found in $SETTINGS"
   fi
 fi
 
 # 3. Remove installed package.
-if [[ -d "$BRAIN_HOME/lib/auto_brain" ]]; then
-  _rm_pkg=$(ask "Remove installed package $BRAIN_HOME/lib/auto_brain?" "Y")
+if [[ -d "$BRAIN_HOME/lib/architekton" ]]; then
+  _rm_pkg=$(ask "Remove installed package $BRAIN_HOME/lib/architekton?" "Y")
   if [[ "$_rm_pkg" == "y" ]]; then
-    rm -rf "$BRAIN_HOME/lib/auto_brain"
-    echo "removed $BRAIN_HOME/lib/auto_brain"
+    rm -rf "$BRAIN_HOME/lib/architekton"
+    echo "removed $BRAIN_HOME/lib/architekton"
     # Remove lib dir if now empty.
     rmdir "$BRAIN_HOME/lib" 2>/dev/null && echo "removed $BRAIN_HOME/lib" || true
   else
@@ -133,7 +133,7 @@ if [[ "$PURGE" == "1" ]]; then
   _journal="$BRAIN_HOME/cost-journal.jsonl"
   [[ -f "$_config"  ]] && rm "$_config"  && echo "purged $_config"
   [[ -f "$_journal" ]] && rm "$_journal" && echo "purged $_journal"
-  # Remove smartmodel dir if now empty.
+  # Remove architekton dir if now empty.
   rmdir "$BRAIN_HOME" 2>/dev/null && echo "removed $BRAIN_HOME" || true
 else
   echo ""

@@ -1,4 +1,4 @@
-"""auto-brain CLI: classify, session-start, toggle, status, warn, session-end, report, run."""
+"""architekton CLI: classify, session-start, toggle, status, warn, session-end, report, run."""
 
 import argparse
 import json
@@ -7,7 +7,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from auto_brain import classifier, config, fingerprint, journal, orchestrator, runner
+from architekton import classifier, config, fingerprint, journal, orchestrator, runner
 
 
 def run_classify(args):
@@ -37,7 +37,7 @@ def run_toggle(args):
     else:
         should_enable = args.state == "on"
     config.set_global_enabled(should_enable)
-    print(f"auto-brain {'on' if should_enable else 'off'} ({config.get_global_config_path()})")
+    print(f"architekton {'on' if should_enable else 'off'} ({config.get_global_config_path()})")
     return 0
 
 
@@ -46,7 +46,7 @@ def run_status(args):
     model, source = config.resolve_model()
     state = "enabled" if config.is_enabled(cfg) else "disabled"
     if cfg["enabled"] and state == "disabled":
-        state += " (SMARTMODEL_DISABLE=1)"
+        state += " (ARCHITEKTON_DISABLE=1)"
     print(f"state:          {state}")
     print(f"mode:           {cfg['mode']}")
     print(f"session model:  {model} ({source})")
@@ -61,10 +61,10 @@ def run_session_end(args):
         payload = json.load(sys.stdin)
         transcript_path = payload.get("transcript_path", "")
         turns = journal._count_turns(transcript_path) if transcript_path else 0
-        model = args.model or os.environ.get("AUTO_BRAIN_MODEL") or os.environ.get("CLAUDE_MODEL") or "sonnet"
+        model = args.model or os.environ.get("ARCHITEKTON_MODEL") or os.environ.get("CLAUDE_MODEL") or "sonnet"
         journal.session_end(model, turns)
     except Exception as error:
-        print(f"auto-brain journal: {error}", file=sys.stderr)
+        print(f"architekton journal: {error}", file=sys.stderr)
     return 0
 
 
@@ -84,7 +84,7 @@ def run_warn(args):
         prompt = json.load(sys.stdin).get("prompt", "")
         current = (
             os.environ.get("CLAUDE_MODEL")
-            or os.environ.get("AUTO_BRAIN_MODEL")
+            or os.environ.get("ARCHITEKTON_MODEL")
             or config.resolve_model()[0]
         )
         current_tier = classifier.get_tier_of_model(current)
@@ -92,12 +92,12 @@ def run_warn(args):
         if current_tier is None or result["tier"] == current_tier:
             return 0
         note = (
-            f"[auto-brain] Complexity suggests {result['recommended_model']} "
+            f"[architekton] Complexity suggests {result['recommended_model']} "
             f"(you are on {current}). Switch: /model {result['recommended_model']}"
         )
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": note}}))
     except Exception as error:
-        print(f"auto-brain warn: {error}", file=sys.stderr)
+        print(f"architekton warn: {error}", file=sys.stderr)
     return 0
 
 
@@ -121,8 +121,8 @@ Common aliases are accepted in config (medium -> med, extreme/max -> ext) but
 canonical labels are preferred. Unknown labels emit a warning and pass through.
 
 Config files (project overrides global):
-  global:  ~/.claude/smartmodel/config.json
-  project: .claude/smartmodel.json
+  global:  ~/.claude/architekton/config.json
+  project: .claude/architekton.json
 
 Full config reference: docs/customizing.md, section 1
 """
@@ -147,7 +147,7 @@ def run_job(args):
     import time as _time
     show_orch = cfg.get("tui", {}).get("show_orchestrator", True)
     if not show_orch:
-        print(f"[auto-brain] Planning with {omodel}...", file=sys.stderr)
+        print(f"[architekton] Planning with {omodel}...", file=sys.stderr)
     ostart_time = _time.monotonic()
     try:
         tasks_raw = orchestrator.decompose(
@@ -155,7 +155,7 @@ def run_job(args):
             preamble=preamble, default_worker_model=wmodel,
         )
     except Exception as error:
-        print(f"auto-brain: orchestrator failed: {error}", file=sys.stderr)
+        print(f"architekton: orchestrator failed: {error}", file=sys.stderr)
         return 1
     oend_time = _time.monotonic()
 
@@ -172,14 +172,14 @@ def run_job(args):
         for t in tasks_raw
     ]
     if not tasks:
-        print("auto-brain: orchestrator returned 0 tasks -- nothing to run.", file=sys.stderr)
+        print("architekton: orchestrator returned 0 tasks -- nothing to run.", file=sys.stderr)
         return 1
     if not show_orch:
-        print(f"[auto-brain] {len(tasks)} tasks planned.", file=sys.stderr)
+        print(f"[architekton] {len(tasks)} tasks planned.", file=sys.stderr)
 
     output_dir = (
         Path(os.environ.get("CLAUDE_CONFIG_DIR", "") or Path.home() / ".claude")
-        / "smartmodel" / "jobs"
+        / "architekton" / "jobs"
         / datetime.now().strftime("%Y%m%d-%H%M%S")
     )
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -212,7 +212,7 @@ def build_parser():
     session_start = commands.add_parser("session-start", help="print the model the wrapper should launch with")
     session_start.set_defaults(run=run_session_start)
 
-    toggle = commands.add_parser("toggle", help="turn auto-brain on or off globally")
+    toggle = commands.add_parser("toggle", help="turn architekton on or off globally")
     toggle.add_argument("state", nargs="?", choices=("on", "off"))
     toggle.set_defaults(run=run_toggle)
 
@@ -223,7 +223,7 @@ def build_parser():
     warn.set_defaults(run=run_warn)
 
     session_end = commands.add_parser("session-end", help="Stop hook: append session stats to cost journal (JSON on stdin)")
-    session_end.add_argument("--model", default=None, help="override model (default: $AUTO_BRAIN_MODEL or $CLAUDE_MODEL)")
+    session_end.add_argument("--model", default=None, help="override model (default: $ARCHITEKTON_MODEL or $CLAUDE_MODEL)")
     session_end.set_defaults(run=run_session_end)
 
     rep = commands.add_parser("report", help="print spend report from the cost journal")
@@ -272,7 +272,7 @@ def main(argv=None):
     try:
         return args.run(args)
     except config.ConfigError as error:
-        print(f"auto-brain: {error}", file=sys.stderr)
+        print(f"architekton: {error}", file=sys.stderr)
         return 1
 
 

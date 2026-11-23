@@ -250,7 +250,7 @@ def _resolve_thinking(task, thinking_map=None):
     if task.thinking:
         normalized, warning = _normalize_thinking(task.thinking)
         if warning:
-            print(f"[auto-brain] {warning}", file=sys.stderr)
+            print(f"[architekton] {warning}", file=sys.stderr)
         if normalized:
             return normalized
     tmap = thinking_map or _DEFAULT_THINKING_MAP
@@ -320,7 +320,7 @@ class _TUI:
         title_clip = job_title[: max(w - 30, 10)]
         header = [
             sep,
-            f"{_BOLD}auto-brain{_R}  \"{title_clip}\"  {omodel_disp} → workers",
+            f"{_BOLD}architekton{_R}  \"{title_clip}\"  {omodel_disp} → workers",
             sep,
         ]
         title_w = max(w - self._FIXED, 15)
@@ -408,7 +408,7 @@ class _TUI:
                 sys.stdout.write(f"{_CLRLINE}{line}\n")
             sys.stdout.flush()
         else:
-            sys.stdout.write(f"[auto-brain] {summary}\n")
+            sys.stdout.write(f"[architekton] {summary}\n")
             sys.stdout.flush()
         self._lines = len(all_lines)
 
@@ -440,7 +440,7 @@ def _worker(task, real_claude, timeout, max_turns, cwd, output_dir, shutdown):
         return
     task.status = Status.RUNNING
     task.start_time = time.monotonic()
-    env = {**os.environ, "SMARTMODEL_DISABLE": "1"}
+    env = {**os.environ, "ARCHITEKTON_DISABLE": "1"}
     try:
         proc = subprocess.Popen(
             [real_claude, "--print", f"--model={task.model}",
@@ -498,7 +498,7 @@ def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns
     if output_dir is None:
         output_dir = (
             Path(os.environ.get("CLAUDE_CONFIG_DIR", "") or Path.home() / ".claude")
-            / "smartmodel" / "jobs" / "default"
+            / "architekton" / "jobs" / "default"
         )
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
@@ -572,9 +572,9 @@ def run(tasks, real_claude, max_parallel=4, worker_timeout=300, worker_max_turns
     skipped = sum(1 for t in tasks if t.status == Status.SKIPPED)
 
     if shutdown.is_set():
-        print("[auto-brain] Job cancelled.")
+        print("[architekton] Job cancelled.")
     else:
-        print(f"\n[auto-brain] Job done: {complete} complete, {errors} error, {skipped} skipped")
+        print(f"\n[architekton] Job done: {complete} complete, {errors} error, {skipped} skipped")
         print(f"  Output: {output_dir}")
 
     return complete, errors, skipped

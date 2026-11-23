@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from auto_brain import fingerprint
+from architekton import fingerprint
 
 
 class BashHeavyTest(unittest.TestCase):

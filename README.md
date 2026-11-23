@@ -1,4 +1,4 @@
-# auto-brain
+# architekton
 
 Model advisor for Claude Code. Automatically selects the right Claude model (Opus / Sonnet / Haiku) at session start based on project type and prompt complexity. Warns mid-session when the active model is mismatched for the task.
 
@@ -20,25 +20,25 @@ No network calls. No LLM calls. Classification runs in under 50ms.
 
 ```bash
 # Score a prompt
-echo "refactor the auth module" | python -m auto_brain.advisor classify
+echo "refactor the auth module" | python -m architekton.advisor classify
 
 # Show what model the wrapper would select (and why)
-python -m auto_brain.advisor session-start
+python -m architekton.advisor session-start
 
 # Show current config and session state
-python -m auto_brain.advisor status
+python -m architekton.advisor status
 
 # Spend report (last 7 days)
-python -m auto_brain.advisor report --days 7
+python -m architekton.advisor report --days 7
 
 # Run a multi-agent job: opus plans, haiku workers execute in parallel
-python -m auto_brain.advisor run "Build a REST API for user authentication"
+python -m architekton.advisor run "Build a REST API for user authentication"
 
 # Disable globally
-python -m auto_brain.advisor toggle off
+python -m architekton.advisor toggle off
 
 # Re-enable
-python -m auto_brain.advisor toggle on
+python -m architekton.advisor toggle on
 ```
 
 ## Multi-agent jobs
@@ -47,7 +47,7 @@ python -m auto_brain.advisor toggle on
 
 ```
 ─────────────────────────────────────────────────────────
- auto-brain  "Build user auth"   opus → workers
+ architekton  "Build user auth"   opus → workers
 ─────────────────────────────────────────────────────────
   ✓  1  Create user model            haiku     4.2s
   ⠸  2  Write auth endpoints         haiku     1.8s
@@ -56,16 +56,16 @@ python -m auto_brain.advisor toggle on
   1 done · 1 running · 1 waiting
 ```
 
-Worker output is saved per-task to `~/.claude/smartmodel/jobs/<timestamp>/<task_id>.txt`.
+Worker output is saved per-task to `~/.claude/architekton/jobs/<timestamp>/<task_id>.txt`.
 
-To wire in the native `/plan` skill as the orchestrator preamble, add to `~/.claude/smartmodel/config.json`:
+To wire in the native `/plan` skill as the orchestrator preamble, add to `~/.claude/architekton/config.json`:
 ```json
 "job": { "orchestrator_preamble": "/plan\n" }
 ```
 
 ## Configuration
 
-Global config: `~/.claude/smartmodel/config.json`. Project overrides: `.claude/smartmodel.json`.
+Global config: `~/.claude/architekton/config.json`. Project overrides: `.claude/architekton.json`.
 
 | Key | Default | Effect |
 |-----|---------|--------|
@@ -78,7 +78,7 @@ Global config: `~/.claude/smartmodel/config.json`. Project overrides: `.claude/s
 | `job.worker_model` | `"haiku"` | Default model for each task worker |
 | `job.max_parallel` | `4` | Max concurrent workers |
 
-Set `SMARTMODEL_DISABLE=1` to bypass for a single session without changing config.
+Set `ARCHITEKTON_DISABLE=1` to bypass for a single session without changing config.
 
 See `docs/customizing.md` for the full config reference and extension points.
 

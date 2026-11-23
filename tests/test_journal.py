@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from unittest import mock
 
-from auto_brain import journal
+from architekton import journal
 
 
 class JournalTest(unittest.TestCase):
@@ -15,13 +15,13 @@ class JournalTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.tmp = Path(tmp.name)
         self.claude_dir = self.tmp / "claude"
-        (self.claude_dir / "smartmodel").mkdir(parents=True)
+        (self.claude_dir / "architekton").mkdir(parents=True)
         env = mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(self.claude_dir)})
         env.start()
         self.addCleanup(env.stop)
 
     def _journal_path(self):
-        return self.claude_dir / "smartmodel" / "cost-journal.jsonl"
+        return self.claude_dir / "architekton" / "cost-journal.jsonl"
 
     def _write_entries(self, entries):
         path = self._journal_path()
@@ -58,9 +58,9 @@ class JournalTest(unittest.TestCase):
         self.assertEqual(entry["light_prompts"], 3)
 
     def test_session_end_idempotent_on_missing_dir(self):
-        # Remove smartmodel dir to test mkdir
+        # Remove architekton dir to test mkdir
         import shutil
-        shutil.rmtree(str(self.claude_dir / "smartmodel"))
+        shutil.rmtree(str(self.claude_dir / "architekton"))
         with mock.patch("os.getcwd", return_value="/projects/proj"):
             journal.session_end("sonnet", 3)
         self.assertTrue(self._journal_path().exists())
