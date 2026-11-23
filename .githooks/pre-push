@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/private-paths.sh"
+
+# ── Run test suite before any push ───────────────────────────────────────────
+repo_root="$(git rev-parse --show-toplevel)"
+if [[ -f "$repo_root/test.sh" ]]; then
+    echo "pre-push: running test suite..." >&2
+    if ! bash "$repo_root/test.sh" >&2; then
+        echo "pre-push: tests failed -- push blocked." >&2
+        exit 1
+    fi
+fi
+
 while read -r local_ref local_sha remote_ref remote_sha; do
     [[ "$local_sha" != 0000000000000000000000000000000000000000 ]] || continue
     git rev-parse --verify "$local_sha^{commit}" >/dev/null || {

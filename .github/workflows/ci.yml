@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Check Python syntax (all source files)
+        run: |
+          find src tests -name "*.py" -exec python -m py_compile {} +
+
+      - name: Scan for secret patterns
+        run: |
+          pattern='sk-[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{36}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY'
+          if grep -rEi "$pattern" src/ tests/ .githooks/ install.sh uninstall.sh run.sh 2>/dev/null; then
+            echo "Secret pattern detected in source files." >&2
+            exit 1
+          fi
+
+      - name: Run test suite
+        run: bash test.sh

@@ -1,6 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/private-paths.sh"
+
+# ── 1. Block private paths ────────────────────────────────────────────────────
 while IFS= read -r -d '' path; do
     guard_path "$path" || exit 1
 done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
+
+# ── 2. Secret pattern scan ────────────────────────────────────────────────────
+SECRET_PATTERNS=(
+    'sk-[A-Za-z0-9]{20,}'
+    'AKIA[0-9A-Z]{16}'
+    'ghp_[A-Za-z0-9]{36}'
+    'Bearer [A-Za-z0-9\-._~+/]+=*'
+    '-----BEGIN (RSA |EC |OPENSSH |)?PRIVATE KEY'
+    'password\s*=\s*["\047][^"\047]{4,}'
+    'api[_-]?key\s*=\s*["\047][^"\047]{8,}'
+)
+pattern="$(IFS='|'; echo "${SECRET_PATTERNS[*]}")"
+while IFS= read -r -d '' path; do
+    [[ "$path" == *.png || "$path" == *.jpg || "$path" == *.gif || "$path" == *.ico ]] && continue
+    content="$(git show ":$path" 2>/dev/null)" || continue
+    if echo "$content" | grep -qEi "$pattern"; then
+        echo "pre-commit: possible secret detected in $path -- commit blocked." >&2
+        echo "  Run: git show \":$path\" | grep -Ei '$pattern'" >&2
+        exit 1
+    fi
+done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
+
+# ── 3. Python syntax check ────────────────────────────────────────────────────
+python_bin="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+if [[ -n "$python_bin" ]]; then
+    while IFS= read -r -d '' path; do
+        [[ "$path" == *.py ]] || continue
+        tmpfile="$(mktemp --suffix=.py)"
+        git show ":$path" > "$tmpfile"
+        if ! "$python_bin" -m py_compile "$tmpfile" 2>/tmp/py_compile_err; then
+            rm -f "$tmpfile"
+            echo "pre-commit: syntax error in $path:" >&2
+            sed "s|$tmpfile|$path|g" /tmp/py_compile_err >&2
+            exit 1
+        fi
+        rm -f "$tmpfile"
+    done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
+fi
