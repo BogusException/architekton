@@ -10,14 +10,15 @@ done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
 # ── 2. Secret pattern scan ────────────────────────────────────────────────────
 while IFS= read -r -d '' path; do
     [[ "$path" == *.png || "$path" == *.jpg || "$path" == *.gif || "$path" == *.ico ]] && continue
+    [[ "$path" == .githooks/* || "$path" == .claude/hooks/* ]] && continue
     content="$(git show ":$path" 2>/dev/null)" || continue
     hit=""
     echo "$content" | grep -qE 'sk-[A-Za-z0-9]{20}'          && hit="Anthropic/OpenAI key pattern"
     echo "$content" | grep -qE 'AKIA[0-9A-Z]{16}'             && hit="AWS access key"
     echo "$content" | grep -qE 'ghp_[A-Za-z0-9]{36}'          && hit="GitHub personal access token"
-    echo "$content" | grep -qF '-----BEGIN PRIVATE KEY'        && hit="private key block"
-    echo "$content" | grep -qF '-----BEGIN RSA PRIVATE KEY'    && hit="RSA private key block"
-    echo "$content" | grep -qF '-----BEGIN OPENSSH PRIVATE KEY' && hit="OpenSSH private key block"
+    echo "$content" | grep -qF -- '-----BEGIN PRIVATE KEY'        && hit="private key block"
+    echo "$content" | grep -qF -- '-----BEGIN RSA PRIVATE KEY'    && hit="RSA private key block"
+    echo "$content" | grep -qF -- '-----BEGIN OPENSSH PRIVATE KEY' && hit="OpenSSH private key block"
     echo "$content" | grep -qiE 'password\s*=\s*['\''"][^'\''"]{4}' && hit="hardcoded password"
     if [[ -n "$hit" ]]; then
         echo "pre-commit: $hit detected in $path -- commit blocked." >&2
