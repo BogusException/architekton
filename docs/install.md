@@ -30,7 +30,7 @@ which claude   # should show ~/bin/claude
 PYTHONPATH=src python -m architekton.advisor status
 
 # Run the full test suite
-bash test.sh   # all 37 tests should pass
+bash dev-test.sh   # all 37 tests should pass
 ```
 
 If `advisor status` prints `state: enabled` and a model source, the install succeeded.

@@ -9,7 +9,7 @@
 | Hook advisory never fires mid-session | Warn hook not registered | Check `.claude/settings.json` for a `UserPromptSubmit` entry pointing to `architekton-warn.sh`; re-run `install.sh` if missing |
 | `architekton: mode must be one of ...` | Invalid `mode` value in a config file | Valid values: `"auto"`, `"advisory"` |
 | `architekton: <path>: invalid JSON` | Corrupt config file | Check the file named in the error; fix or delete it (`load()` falls back to defaults for missing files) |
-| Tests fail with `ModuleNotFoundError` | Running without `PYTHONPATH` set | Use `PYTHONPATH=src python -m unittest discover -s tests` or `bash test.sh` |
+| Tests fail with `ModuleNotFoundError` | Running without `PYTHONPATH` set | Use `PYTHONPATH=src python -m unittest discover -s tests` or `bash dev-test.sh` |
 
 ## 2. Logs
 
@@ -22,6 +22,6 @@
 
 Open an issue in the project repo and include:
 - Output of `PYTHONPATH=src python -m architekton.advisor status`
-- Output of `bash test.sh`
+- Output of `bash dev-test.sh`
 - The full error message, not just the last line
 - Python version (`python --version`) and OS

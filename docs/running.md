@@ -12,7 +12,7 @@ After install, `claude` just works. The wrapper is transparent -- every session 
 
 | Task | Command |
 |------|---------|
-| Run tests | `bash test.sh` |
+| Run tests | `bash dev-test.sh` |
 | Run tests with output | `PYTHONPATH=src python -m unittest discover -s tests -v` |
 | Check current config | `PYTHONPATH=src python -m architekton.advisor status` |
 | Score a prompt | `echo "your prompt" \| PYTHONPATH=src python -m architekton.advisor classify` |

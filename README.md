@@ -257,7 +257,7 @@ config/
 ## Tests
 
 ```bash
-bash test.sh
+bash dev-test.sh
 ```
 
 145 tests, stdlib only, no external dependencies.
