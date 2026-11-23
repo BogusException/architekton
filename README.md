@@ -73,16 +73,16 @@ The nudge appears above your prompt. It never blocks or delays your message.
 One command decomposes a goal into a task DAG, then dispatches parallel Claude Code sessions -- one per task -- and displays a live TUI:
 
 ```
-─────────────────────────────────────────────────────────────────────────────
- architekton  "Build user auth API"   opus → workers
-─────────────────────────────────────────────────────────────────────────────
-  ✓  orch  opus 4.7         [high]  DONE  orchestrator  (4 tasks planned)   2.1s
-  ✓  W1    haiku 4.5        [low ]  DONE  Create user model                 18.4s
-  ✓  W2    haiku 4.5        [low ]  DONE  Write auth endpoints               31.2s
-  ⠸  W3    haiku 4.5        [low ]  RUN   Write tests                      14s/300s
-  ·  W4    haiku 4.5        [low ]  PEND  Update OpenAPI spec                  --
-─────────────────────────────────────────────────────────────────────────────
-  2 complete · 1 running · 1 waiting
+-----------------------------------------------------------------------------
+ architekton  "Build user auth API"   opus -> workers
+-----------------------------------------------------------------------------
+  v  orch  opus 4.7         [high]  DONE  orchestrator  (4 tasks planned)   2.1s
+  v  W1    haiku 4.5        [low ]  DONE  Create user model                 18.4s
+  v  W2    haiku 4.5        [low ]  DONE  Write auth endpoints               31.2s
+  ~  W3    haiku 4.5        [low ]  RUN   Write tests                      14s/300s
+  .  W4    haiku 4.5        [low ]  PEND  Update OpenAPI spec                  --
+-----------------------------------------------------------------------------
+  2 complete, 1 running, 1 waiting
 ```
 
 The orchestrator (Opus by default) plans the work. Workers (Haiku by default) execute in parallel. Task output is saved per-worker to `~/.claude/architekton/jobs/<timestamp>/<task_id>.txt`.
