@@ -20,7 +20,7 @@ architekton measures the work in front of you, picks the model that fits, and nu
 bash install.sh
 ```
 
-Requires Python 3.9+, Claude Code, and `jq`. The installer checks for all three before touching anything and exits with a clear message if one is missing -- no partial install to clean up. On most Linux systems `jq` is available via `apt install jq` or `dnf install jq`; on macOS via `brew install jq`. The installer:
+Requires Python 3.9+, Claude Code, and `jq`. The installer checks for all three before touching anything and exits with a clear message if one is missing -- no partial install to clean up. On most Linux systems `jq` is available via `apt install jq` or `dnf install jq`; on macOS via `brew install jq`. See https://jqlang.github.io/jq/ for all platforms. The installer:
 
 1. Places a wrapper at `~/bin/claude` that intercepts every session start
 2. Registers a `UserPromptSubmit` hook for mid-session complexity scoring
