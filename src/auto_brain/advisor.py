@@ -82,14 +82,14 @@ def run_warn(args):
         if not config.is_enabled(cfg):
             return 0
         prompt = json.load(sys.stdin).get("prompt", "")
-        current = os.environ.get("AUTO_BRAIN_MODEL") or os.environ.get("CLAUDE_MODEL")
+        current = os.environ.get("CLAUDE_MODEL") or os.environ.get("AUTO_BRAIN_MODEL")
         current_tier = classifier.get_tier_of_model(current)
         result = classifier.classify(prompt, cfg)
         if current_tier is None or result["tier"] == current_tier:
             return 0
         note = (
             f"[auto-brain] Complexity suggests {result['recommended_model']} "
-            f"(you are on {current}). Restart: claude --model {result['recommended_model']}"
+            f"(you are on {current}). Switch: /model {result['recommended_model']}"
         )
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": note}}))
     except Exception as error:
