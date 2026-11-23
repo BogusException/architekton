@@ -10,6 +10,7 @@ DEFAULTS = {
     "enabled": True,
     "mode": "auto",
     "default_model": "sonnet",
+    "backup_keep": 10,
     "models": {"haiku": "haiku", "sonnet": "sonnet", "opus": "opus"},
     "thresholds": {"light": 0.30, "heavy": 0.65},
     "pricing": {
@@ -194,8 +195,18 @@ def set_global_enabled(should_enable):
 _BACKUP_KEEP = 10
 
 
+def _get_backup_keep() -> int:
+    try:
+        path = get_global_config_path()
+        data = read_json(path) if path.exists() else {}
+        v = data.get("backup_keep", _BACKUP_KEEP)
+        return int(v) if isinstance(v, (int, float)) and int(v) >= 1 else _BACKUP_KEEP
+    except Exception:
+        return _BACKUP_KEEP
+
+
 def _rotate_backups(path):
-    """Keep at most _BACKUP_KEEP timestamped backups of path."""
+    """Copy path into config.backups/, then prune oldest beyond backup_keep."""
     import time
     backup_dir = path.parent / "config.backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -204,9 +215,9 @@ def _rotate_backups(path):
     if path.exists():
         import shutil
         shutil.copy2(path, backup)
-    # Prune oldest beyond _BACKUP_KEEP
+    keep = _get_backup_keep()
     backups = sorted(backup_dir.glob("config.*.json"))
-    for old in backups[:-_BACKUP_KEEP]:
+    for old in backups[:-keep]:
         old.unlink(missing_ok=True)
     return backup
 
@@ -229,11 +240,11 @@ def save_global_config(data: dict) -> None:
 
 
 def list_config_backups() -> list:
-    """Return backup paths sorted oldest to newest."""
+    """Return backup paths sorted newest to oldest."""
     backup_dir = get_global_config_path().parent / "config.backups"
     if not backup_dir.exists():
         return []
-    return sorted(backup_dir.glob("config.*.json"))
+    return sorted(backup_dir.glob("config.*.json"), reverse=True)
 
 
 def restore_config(backup_path=None) -> Path:

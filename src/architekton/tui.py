@@ -1,18 +1,22 @@
 """Curses-based config editor driven by config/schema.json.
 
-Keyboard:
+Keyboard (main screen):
   arrows / j / k    move between fields
   space / enter     toggle bool, cycle enum, begin text edit
-  s                 save and exit
-  q                 quit (prompts if unsaved changes)
-  r                 restore factory defaults (prompts)
+  s                 save (confirms before writing)
+  b                 browse and restore from a saved backup
+  r                 restore factory defaults (confirms)
+  q                 quit (s=save+quit, d=discard+quit, esc=cancel if dirty)
   ESC               cancel text edit
 """
 
+import binascii
 import curses
+import datetime
 import json
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from architekton import config as _cfg
@@ -39,6 +43,16 @@ class _Field:
     is_object: bool     # True for dict-valued fields (thinking_map)
 
 
+@dataclass
+class _BackupEntry:
+    path: Path
+    dt: Any             # datetime.datetime or None
+    size: int
+    crc32: str
+
+
+# ── schema flattening ──────────────────────────────────────────────────────
+
 def _flatten(schema: dict) -> list:
     """Return ordered list of _Section / _Field items from the schema."""
     root = schema
@@ -47,7 +61,6 @@ def _flatten(schema: dict) -> list:
         if "$ref" not in node:
             return node
         resolved = _resolve_ref(node["$ref"], root)
-        # Merge: sibling keys (x-label, default, etc.) override the resolved def
         merged = dict(resolved)
         for k, v in node.items():
             if k != "$ref":
@@ -66,7 +79,6 @@ def _flatten(schema: dict) -> list:
                 for k, child in props.items():
                     yield from walk(child, path + [k], section)
                 return
-            # additionalProperties only (e.g. thinking_map) -- free-text
             if label:
                 yield _Field(path=path, label=label, section=section,
                              ftype="string", enum=None, minimum=None,
@@ -103,6 +115,27 @@ def _flatten(schema: dict) -> list:
                 items.append(_Section(item.section))
             items.append(item)
     return items
+
+
+# ── backup helpers ─────────────────────────────────────────────────────────
+
+def _load_backups() -> list:
+    """Return list of _BackupEntry, newest first."""
+    entries = []
+    for p in _cfg.list_config_backups():
+        try:
+            data = p.read_bytes()
+            stem = p.stem  # config.20261123013218
+            ts = stem.split(".", 1)[1] if "." in stem else ""
+            try:
+                dt = datetime.datetime.strptime(ts, "%Y%m%d%H%M%S")
+            except ValueError:
+                dt = None
+            crc = f"{binascii.crc32(data) & 0xFFFFFFFF:08x}"
+            entries.append(_BackupEntry(path=p, dt=dt, size=len(data), crc32=crc))
+        except Exception:
+            continue
+    return entries
 
 
 # ── value helpers ──────────────────────────────────────────────────────────
@@ -163,13 +196,14 @@ def _parse(s: str, ftype: str, is_object: bool):
 
 # ── TUI ───────────────────────────────────────────────────────────────────
 
-_HELP = "s:save  q:quit  r:restore  ↑↓/jk:move  space/enter:edit  esc:cancel"
+_HELP = "s:save  b:backups  r:factory-reset  q:quit  ↑↓/jk:move  sp/enter:edit  esc:cancel"
 
-_C_SECTION = 1   # section header
-_C_SEL     = 2   # selected row label
-_C_VAL     = 3   # value
-_C_ERR     = 4   # error message
-_C_EDIT    = 5   # edit bar
+_C_SECTION = 1
+_C_SEL     = 2
+_C_VAL     = 3
+_C_ERR     = 4
+_C_EDIT    = 5
+_C_BACKUP  = 6   # selected row in backup picker
 
 
 class _TUI:
@@ -178,8 +212,8 @@ class _TUI:
         self._schema = _load_schema()
         self._items = _flatten(self._schema)
         self._fields = [i for i, it in enumerate(self._items) if isinstance(it, _Field)]
-        self._cursor = 0      # index into self._fields
-        self._scroll = 0      # first self._items index shown
+        self._cursor = 0
+        self._scroll = 0
         self._values = self._load_file()
         self._saved  = json.dumps(self._values, sort_keys=True)
         self._edit   = False
@@ -190,11 +224,12 @@ class _TUI:
         try:
             curses.start_color()
             curses.use_default_colors()
-            curses.init_pair(_C_SECTION, curses.COLOR_CYAN,  -1)
-            curses.init_pair(_C_SEL,    curses.COLOR_GREEN,  -1)
-            curses.init_pair(_C_VAL,    curses.COLOR_YELLOW, -1)
-            curses.init_pair(_C_ERR,    curses.COLOR_RED,    -1)
-            curses.init_pair(_C_EDIT,   curses.COLOR_WHITE,  curses.COLOR_BLUE)
+            curses.init_pair(_C_SECTION, curses.COLOR_CYAN,   -1)
+            curses.init_pair(_C_SEL,     curses.COLOR_GREEN,  -1)
+            curses.init_pair(_C_VAL,     curses.COLOR_YELLOW, -1)
+            curses.init_pair(_C_ERR,     curses.COLOR_RED,    -1)
+            curses.init_pair(_C_EDIT,    curses.COLOR_WHITE,  curses.COLOR_BLUE)
+            curses.init_pair(_C_BACKUP,  curses.COLOR_BLACK,  curses.COLOR_CYAN)
         except curses.error:
             pass
 
@@ -215,7 +250,7 @@ class _TUI:
         return self._scr.getmaxyx()[1]
 
     def _content_rows(self) -> int:
-        return self._h() - 4   # title + sep + msg + help
+        return self._h() - 4
 
     def _sel_idx(self) -> int:
         return self._fields[self._cursor]
@@ -271,7 +306,6 @@ class _TUI:
                     pass
             row += 1
 
-        # Status / edit bar
         try:
             if self._edit:
                 item = self._items[self._sel_idx()]
@@ -290,6 +324,18 @@ class _TUI:
 
     def _field(self) -> _Field:
         return self._items[self._sel_idx()]
+
+    # ── confirmation gate ──────────────────────────────────────────────────
+
+    def _confirm(self, msg: str) -> bool:
+        """Show msg at the status bar and return True only if user presses y/Y."""
+        self._msg = msg
+        self._draw()
+        ch = self._scr.getch()
+        self._msg = ""
+        return ch in (ord("y"), ord("Y"))
+
+    # ── edit ───────────────────────────────────────────────────────────────
 
     def _activate(self):
         item = self._field()
@@ -323,7 +369,10 @@ class _TUI:
         self._buf = ""
         self._msg = ""
 
-    def _save(self) -> bool:
+    # ── save / quit / restore ──────────────────────────────────────────────
+
+    def _do_save(self) -> bool:
+        """Write config without prompting. Called after confirmation."""
         try:
             _cfg.save_global_config(self._values)
             self._saved = json.dumps(self._values, sort_keys=True)
@@ -333,35 +382,113 @@ class _TUI:
             self._msg = f"Error: {e}"
             return False
 
-    def _prompt_restore(self):
-        self._msg = "Restore factory defaults? (y/N)"
-        self._draw()
-        ch = self._scr.getch()
-        if ch in (ord("y"), ord("Y")):
-            try:
-                _cfg.restore_config(backup_path=None)
-                self._values = self._load_file()
-                self._saved = json.dumps(self._values, sort_keys=True)
-                self._msg = "Factory defaults restored."
-            except _cfg.ConfigError as e:
-                self._msg = f"Error: {e}"
-        else:
-            self._msg = ""
+    def _save(self) -> bool:
+        if not self._confirm("Save changes? (y/N)"):
+            self._msg = "Save cancelled."
+            return False
+        return self._do_save()
 
     def _prompt_quit(self) -> bool:
         """Return True if the caller should exit."""
         if not self._dirty():
             return True
-        self._msg = "Unsaved changes -- save before quitting? (y/n/esc)"
+        self._msg = "Unsaved changes: (s)ave and quit  (d)iscard and quit  (esc) cancel"
         self._draw()
         ch = self._scr.getch()
-        if ch in (ord("y"), ord("Y")):
-            self._save()
-            return True
-        if ch in (ord("n"), ord("N")):
-            return True
         self._msg = ""
+        if ch in (ord("s"), ord("S")):
+            self._do_save()
+            return True
+        if ch in (ord("d"), ord("D")):
+            return True
         return False
+
+    def _prompt_restore(self):
+        if not self._confirm("Reset to factory defaults? All unsaved changes will be lost. (y/N)"):
+            return
+        try:
+            _cfg.restore_config(backup_path=None)
+            self._values = self._load_file()
+            self._saved = json.dumps(self._values, sort_keys=True)
+            self._msg = "Factory defaults restored."
+        except _cfg.ConfigError as e:
+            self._msg = f"Error: {e}"
+
+    # ── backup picker ──────────────────────────────────────────────────────
+
+    def _show_backups(self):
+        entries = _load_backups()
+        if not entries:
+            self._msg = "No backups found."
+            return
+
+        cursor = 0
+        scroll = 0
+
+        while True:
+            scr, h, w = self._scr, self._h(), self._w()
+            scr.erase()
+
+            try:
+                scr.addstr(0, 0, f" architekton config -- backups ({len(entries)})".ljust(w - 1), curses.A_BOLD)
+                scr.addstr(1, 0, "─" * (w - 1))
+            except curses.error:
+                pass
+
+            visible = h - 4
+            if cursor < scroll:
+                scroll = cursor
+            elif cursor >= scroll + visible:
+                scroll = cursor - visible + 1
+
+            for i, e in enumerate(entries):
+                row = i - scroll + 2
+                if row < 2 or row >= h - 2:
+                    continue
+                dt_str = e.dt.strftime("%Y-%m-%d  %H:%M:%S") if e.dt else "unknown date"
+                size_str = f"{e.size / 1024:.1f} KB" if e.size >= 1024 else f"{e.size} B"
+                line = f"  {'>' if i == cursor else ' '}  {dt_str}   {size_str:>8}   CRC: {e.crc32}"
+                attr = curses.color_pair(_C_BACKUP) | curses.A_BOLD if i == cursor else 0
+                try:
+                    scr.addstr(row, 0, line[:w - 1], attr)
+                except curses.error:
+                    pass
+
+            try:
+                scr.addstr(h - 2, 0, "─" * (w - 1))
+                scr.addstr(h - 1, 0, "enter:restore  ↑↓/jk:move  esc/q:cancel"[:w - 1])
+            except curses.error:
+                pass
+
+            scr.refresh()
+            ch = scr.getch()
+
+            if ch in (curses.KEY_UP, ord("k")):
+                cursor = max(0, cursor - 1)
+            elif ch in (curses.KEY_DOWN, ord("j")):
+                cursor = min(len(entries) - 1, cursor + 1)
+            elif ch in (curses.KEY_ENTER, 10, 13):
+                e = entries[cursor]
+                label = e.dt.strftime("%Y-%m-%d %H:%M:%S") if e.dt else str(e.path.name)
+                msg = f"Restore from {label}? All current config will be replaced. (y/N)"
+                scr.addstr(h - 2, 0, msg[:w - 1], curses.color_pair(_C_ERR))
+                scr.refresh()
+                conf = scr.getch()
+                if conf in (ord("y"), ord("Y")):
+                    try:
+                        _cfg.restore_config(backup_path=e.path)
+                        self._values = self._load_file()
+                        self._saved = json.dumps(self._values, sort_keys=True)
+                        self._msg = f"Restored from {label}."
+                    except _cfg.ConfigError as ex:
+                        self._msg = f"Error: {ex}"
+                return
+            elif ch in (27, ord("q")):
+                return
+            elif ch == curses.KEY_RESIZE:
+                scr.clear()
+
+    # ── main loop ──────────────────────────────────────────────────────────
 
     def run(self) -> int:
         while True:
@@ -394,6 +521,8 @@ class _TUI:
                 self._activate()
             elif ch == ord("s"):
                 self._save()
+            elif ch == ord("b"):
+                self._show_backups()
             elif ch == ord("r"):
                 self._prompt_restore()
             elif ch == ord("q"):

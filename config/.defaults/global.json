@@ -2,6 +2,7 @@
   "enabled": true,
   "mode": "auto",
   "default_model": "sonnet",
+  "backup_keep": 10,
   "models": {
     "haiku": "haiku",
     "sonnet": "sonnet",
