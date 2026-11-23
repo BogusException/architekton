@@ -2,7 +2,7 @@
 
 ## 1. Configuration
 
-Config files are JSON. The global file is `~/.claude/architekton/config.json`; project overrides go in `.claude/architekton.json` at the project root. Project keys win over global keys. See `config/global-default.json` and `config/project-default.json` for templates.
+Config files are JSON. The global file is `~/.claude/architekton/config.json`; project overrides go in `.claude/architekton.json` at the project root. Project keys win over global keys. See `config/.defaults/global.json` and `config/.defaults/project.json` for the factory defaults (read-only reference copies).
 
 | Key | Default | Effect |
 |-----|---------|--------|

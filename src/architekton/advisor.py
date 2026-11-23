@@ -308,7 +308,7 @@ def build_parser():
     )
     restore.add_argument(
         "--factory", action="store_true",
-        help="restore from factory defaults (config/global-default.json)",
+        help="restore from factory defaults (config/.defaults/global.json)",
     )
     restore.add_argument(
         "--list", action="store_true", dest="list_backups",

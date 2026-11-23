@@ -111,7 +111,7 @@ chmod +x "$HOOK"
 
 # 3. Global config. Never overwrite a user's edits.
 if [[ ! -e "$BRAIN_HOME/config.json" ]]; then
-  cp "$REPO/config/global-default.json" "$BRAIN_HOME/config.json"
+  cp "$REPO/config/.defaults/global.json" "$BRAIN_HOME/config.json"
   echo "wrote $BRAIN_HOME/config.json"
 fi
 

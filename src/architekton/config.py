@@ -245,7 +245,7 @@ def restore_config(backup_path=None) -> Path:
     target = get_global_config_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     if backup_path is None:
-        factory = Path(__file__).parent.parent.parent / "config" / "global-default.json"
+        factory = Path(__file__).parent.parent.parent / "config" / ".defaults" / "global.json"
         source = factory
     else:
         source = Path(backup_path)

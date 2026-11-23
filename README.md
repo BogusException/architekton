@@ -249,7 +249,10 @@ src/mod/
   marketplace.json
 
 config/
-  global-default.json  Factory defaults
+  schema.json          Config schema (validation + TUI field definitions)
+  .defaults/
+    global.json        Factory defaults (read-only reference)
+    project.json       Project-level factory defaults
 ```
 
 ---

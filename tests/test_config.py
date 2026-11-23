@@ -88,7 +88,7 @@ class ConfigTest(unittest.TestCase):
         self.assertEqual(saved, {"default_model": "opus", "enabled": False})
 
     def test_global_template_matches_defaults(self):
-        template = json.loads((REPO / "config" / "global-default.json").read_text(encoding="utf-8"))
+        template = json.loads((REPO / "config" / ".defaults" / "global.json").read_text(encoding="utf-8"))
         self.assertEqual(template, config.DEFAULTS)
 
 
