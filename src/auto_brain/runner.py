@@ -63,6 +63,14 @@ _STATUS_STYLE = {
     Status.SKIPPED:  ("↷", _YELLOW),
 }
 
+_STATUS_WORD = {
+    Status.WAITING:  "PEND",
+    Status.RUNNING:  "RUN",
+    Status.COMPLETE: "DONE",
+    Status.ERROR:    "ERR",
+    Status.SKIPPED:  "SKIP",
+}
+
 # Palette color name -> ANSI escape mappings
 _ANSI_FG = {
     "black":          "\033[30m",
@@ -286,8 +294,8 @@ def _term_width():
 
 class _TUI:
     # Fixed column widths (chars, excluding ANSI codes):
-    # status(5) + wid(6) + model(17) + thinking(8) + sep(2) + time(10) = 48
-    _FIXED = 48
+    # status(5) + wid(6) + model(17) + thinking(8) + word(6) + sep(2) + time(10) = 54
+    _FIXED = 54
 
     def __init__(self, is_tty, thinking_map=None, palette=None, show_orchestrator=True):
         self._is_tty = is_tty
@@ -337,9 +345,10 @@ class _TUI:
                 icon_c = pal.colorize(oicon, sfg, end=field_end)
                 wid_c  = pal.colorize(f"{'orch':<4}", sfg, end=field_end)
                 mod_c  = pal.colorize(f"{omodel_disp:<15}", mfg, end=field_end)
+                osw_c  = pal.colorize(f"{'DONE':<4}", sfg, end=field_end)
                 body = (
                     f"  {icon_c}  {wid_c}  {mod_c}  "
-                    f"[{othinking:<4}]  {otitle_trunc:<{title_w}}  {otime_str:>10}"
+                    f"[{othinking:<4}]  {osw_c}  {otitle_trunc:<{title_w}}  {otime_str:>10}"
                 )
                 rows.append(f"{rb_code}{body}{_R}" if rb_code else body)
             else:
@@ -348,6 +357,7 @@ class _TUI:
                     f"{'orch':<4}  "
                     f"{omodel_disp:<15}  "
                     f"[{othinking:<4}]  "
+                    f"{'DONE':<4}  "
                     f"{otitle_trunc:<{title_w}}  "
                     f"{otime_str:>10}"
                 )
@@ -361,6 +371,7 @@ class _TUI:
             time_str = _time_field(task)
             title_trunc = task.title[:title_w]
 
+            sw = _STATUS_WORD[task.status]
             if pal and pal.enabled:
                 # Pad plain-text fields to fixed widths first (ANSI codes have zero visual width),
                 # then wrap with color. This keeps column alignment correct.
@@ -371,9 +382,10 @@ class _TUI:
                 icon_c = pal.colorize(icon, sfg, end=field_end)
                 wid_c  = pal.colorize(f"{wid:<4}", sfg, end=field_end)
                 mod_c  = pal.colorize(f"{model_disp:<15}", mfg, end=field_end)
+                sw_c   = pal.colorize(f"{sw:<4}", sfg, end=field_end)
                 body = (
                     f"  {icon_c}  {wid_c}  {mod_c}  "
-                    f"[{thinking:<4}]  {title_trunc:<{title_w}}  {time_str:>10}"
+                    f"[{thinking:<4}]  {sw_c}  {title_trunc:<{title_w}}  {time_str:>10}"
                 )
                 rows.append(f"{rb_code}{body}{_R}" if rb_code else body)
             else:
@@ -382,6 +394,7 @@ class _TUI:
                     f"{wid:<4}  "
                     f"{model_disp:<15}  "
                     f"[{thinking:<4}]  "
+                    f"{default_color}{sw:<4}{_R}  "
                     f"{title_trunc:<{title_w}}  "
                     f"{time_str:>10}"
                 )
