@@ -201,6 +201,33 @@ def run_job(args):
     return 0 if errors == 0 else 1
 
 
+def run_restore_config(args):
+    if args.list_backups:
+        backups = config.list_config_backups()
+        if not backups:
+            print("No config backups found.")
+        else:
+            for b in reversed(backups):  # newest first
+                print(b)
+        return 0
+
+    if args.factory:
+        source = config.restore_config(backup_path=None)
+        print(f"Config restored from factory defaults: {source}")
+        return 0
+
+    backups = config.list_config_backups()
+    if args.backup:
+        source = config.restore_config(backup_path=args.backup)
+    elif backups:
+        source = config.restore_config(backup_path=backups[-1])
+    else:
+        print("No backups available. Use --factory to restore factory defaults.", file=sys.stderr)
+        return 1
+    print(f"Config restored from: {source}")
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(prog="advisor")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -263,6 +290,24 @@ def build_parser():
              "(default: derived from each task's model tier via thinking_map config)",
     )
     job.set_defaults(run=run_job)
+
+    restore = commands.add_parser(
+        "restore-config",
+        help="restore global config from a backup or factory defaults",
+    )
+    restore.add_argument(
+        "--factory", action="store_true",
+        help="restore from factory defaults (config/global-default.json)",
+    )
+    restore.add_argument(
+        "--list", action="store_true", dest="list_backups",
+        help="list available config backups",
+    )
+    restore.add_argument(
+        "backup", nargs="?", metavar="BACKUP",
+        help="path to a backup file (from --list); omit to restore most recent",
+    )
+    restore.set_defaults(run=run_restore_config)
 
     return parser
 

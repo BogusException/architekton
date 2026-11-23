@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 
+from architekton.schema_validator import validate as _schema_validate
+
 DEFAULTS = {
     "enabled": True,
     "mode": "auto",
@@ -150,6 +152,8 @@ def load(project_dir=None):
         raise ConfigError(f"mode must be one of {VALID_MODES}, got {merged['mode']!r}")
     if isinstance(merged.get("job"), dict):
         _validate_job_config(merged["job"])
+    for err in _schema_validate(merged):
+        _warn(f"config validation: {err}")
     return merged
 
 
@@ -185,3 +189,68 @@ def set_global_enabled(should_enable):
     temporary = path.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     os.replace(temporary, path)
+
+
+_BACKUP_KEEP = 10
+
+
+def _rotate_backups(path):
+    """Keep at most _BACKUP_KEEP timestamped backups of path."""
+    import time
+    backup_dir = path.parent / "config.backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d%H%M%S")
+    backup = backup_dir / f"config.{stamp}.json"
+    if path.exists():
+        import shutil
+        shutil.copy2(path, backup)
+    # Prune oldest beyond _BACKUP_KEEP
+    backups = sorted(backup_dir.glob("config.*.json"))
+    for old in backups[:-_BACKUP_KEEP]:
+        old.unlink(missing_ok=True)
+    return backup
+
+
+def save_global_config(data: dict) -> None:
+    """Validate data, rotate a backup, then write to the global config path.
+
+    Raises ConfigError if schema validation fails so the caller (TUI) can
+    show the errors without writing a broken config.
+    """
+    errors = _schema_validate(data)
+    if errors:
+        raise ConfigError("config validation failed:\n  " + "\n  ".join(errors))
+    path = get_global_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _rotate_backups(path)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def list_config_backups() -> list:
+    """Return backup paths sorted oldest to newest."""
+    backup_dir = get_global_config_path().parent / "config.backups"
+    if not backup_dir.exists():
+        return []
+    return sorted(backup_dir.glob("config.*.json"))
+
+
+def restore_config(backup_path=None) -> Path:
+    """Restore global config from backup_path, or from the factory default.
+
+    Returns the path that was restored from.
+    """
+    import shutil
+    target = get_global_config_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if backup_path is None:
+        factory = Path(__file__).parent.parent.parent / "config" / "global-default.json"
+        source = factory
+    else:
+        source = Path(backup_path)
+    if not source.exists():
+        raise ConfigError(f"restore source not found: {source}")
+    _rotate_backups(target)
+    shutil.copy2(source, target)
+    return source
