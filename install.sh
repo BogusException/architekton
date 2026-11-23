@@ -60,7 +60,9 @@ fi
 _path_ok=0
 IFS=':' read -ra _path_parts <<< "$PATH"
 for _p in "${_path_parts[@]}"; do
-  [[ "$_p" == "$BIN_DIR" ]] && _path_ok=1 && break
+  # Expand leading ~ so we match both ~/bin and /home/user/bin forms.
+  _p_expanded="${_p/#\~/$HOME}"
+  [[ "$_p_expanded" == "$BIN_DIR" ]] && _path_ok=1 && break
 done
 if [[ "$_path_ok" == "1" ]]; then
   echo "  OK:      $BIN_DIR is in PATH"
