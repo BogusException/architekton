@@ -400,7 +400,8 @@ class _TUI:
         self._lines = len(all_lines)
 
     def final(self, tasks, job_title, omodel, tick, ostart_time=None, oend_time=None):
-        self._lines = 0
+        # Do not reset _lines -- the loop already rendered the final state in-place.
+        # Resetting causes a duplicate table print. render() will update _lines correctly.
         self.render(tasks, job_title, omodel, tick, ostart_time=ostart_time, oend_time=oend_time)
 
 
