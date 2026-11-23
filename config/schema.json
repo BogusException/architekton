@@ -1,0 +1,173 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/BogusException/architekton/config/schema.json",
+  "title": "architekton configuration",
+  "description": "Global (~/.claude/architekton/config.json) and project (.claude/architekton.json) config.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Master on/off switch. Set false to disable without uninstalling. Also overridden by ARCHITEKTON_DISABLE=1 env var.",
+      "x-section": "general",
+      "x-label": "Enabled"
+    },
+
+    "mode": {
+      "type": "string",
+      "enum": ["auto", "advisory"],
+      "default": "auto",
+      "description": "auto = select model at session start. advisory = only warn mid-session, never change the model.",
+      "x-section": "general",
+      "x-label": "Mode"
+    },
+
+    "default_model": {
+      "type": "string",
+      "default": "sonnet",
+      "description": "Fallback model when no project fingerprint matches. Accepts alias (haiku/sonnet/opus) or full model ID.",
+      "x-section": "general",
+      "x-label": "Default model"
+    },
+
+    "models": {
+      "type": "object",
+      "description": "Maps tier names to actual Claude model aliases or full IDs.",
+      "x-section": "models",
+      "additionalProperties": false,
+      "properties": {
+        "haiku":  { "type": "string", "default": "haiku",  "description": "Model used for light tasks.",   "x-label": "Haiku tier model" },
+        "sonnet": { "type": "string", "default": "sonnet", "description": "Model used for medium tasks.",  "x-label": "Sonnet tier model" },
+        "opus":   { "type": "string", "default": "opus",   "description": "Model used for heavy tasks.",   "x-label": "Opus tier model" }
+      }
+    },
+
+    "thresholds": {
+      "type": "object",
+      "description": "Complexity score boundaries. Scores are 0.0-1.0.",
+      "x-section": "classifier",
+      "additionalProperties": false,
+      "properties": {
+        "light": {
+          "type": "number", "default": 0.30, "minimum": 0.0, "maximum": 1.0,
+          "description": "Score at or below this uses haiku.",
+          "x-label": "Light threshold"
+        },
+        "heavy": {
+          "type": "number", "default": 0.65, "minimum": 0.0, "maximum": 1.0,
+          "description": "Score at or above this uses opus. Must be greater than light.",
+          "x-label": "Heavy threshold"
+        }
+      }
+    },
+
+    "pricing": {
+      "type": "object",
+      "description": "Per-model pricing used by the cost report. Units: USD per 1M tokens.",
+      "x-section": "pricing",
+      "additionalProperties": false,
+      "properties": {
+        "opus":   { "$ref": "#/$defs/pricing_tier", "x-label": "Opus pricing" },
+        "sonnet": { "$ref": "#/$defs/pricing_tier", "x-label": "Sonnet pricing" },
+        "haiku":  { "$ref": "#/$defs/pricing_tier", "x-label": "Haiku pricing" }
+      }
+    },
+
+    "job": {
+      "type": "object",
+      "description": "Multi-agent job runner settings.",
+      "x-section": "job runner",
+      "additionalProperties": false,
+      "properties": {
+        "orchestrator_model": {
+          "type": "string", "default": "opus",
+          "description": "Model used to decompose the goal into tasks.",
+          "x-label": "Orchestrator model"
+        },
+        "worker_model": {
+          "type": "string", "default": "haiku",
+          "description": "Default model for each worker session.",
+          "x-label": "Worker model"
+        },
+        "max_parallel": {
+          "type": "integer", "default": 4, "minimum": 1, "maximum": 32,
+          "description": "Maximum concurrent worker sessions.",
+          "x-label": "Max parallel workers"
+        },
+        "worker_timeout": {
+          "type": "integer", "default": 300, "minimum": 10,
+          "description": "Seconds before a worker session is killed.",
+          "x-label": "Worker timeout (sec)"
+        },
+        "worker_max_turns": {
+          "type": "integer", "default": 20, "minimum": 1,
+          "description": "Maximum turns per worker session.",
+          "x-label": "Worker max turns"
+        },
+        "orchestrator_preamble": {
+          "type": "string", "default": "",
+          "description": "Text prepended to the orchestrator prompt. Use \"/plan\\n\" to invoke the plan skill.",
+          "x-label": "Orchestrator preamble"
+        },
+        "thinking_map": {
+          "type": "object",
+          "description": "Maps model tier to thinking effort level (low/med/high/ext).",
+          "x-label": "Thinking map",
+          "additionalProperties": { "$ref": "#/$defs/thinking_level" }
+        },
+        "worker_thinking": {
+          "anyOf": [{ "$ref": "#/$defs/thinking_level" }, { "type": "string", "enum": [""] }],
+          "default": "",
+          "description": "Force all workers to this thinking effort. Empty string = derive from model tier.",
+          "x-label": "Worker thinking override"
+        }
+      }
+    },
+
+    "tui": {
+      "type": "object",
+      "description": "Job runner TUI colors. Accepts named ANSI colors, rgb(R,G,B), or empty string for default.",
+      "x-section": "tui colors",
+      "additionalProperties": false,
+      "properties": {
+        "color":            { "type": "boolean", "default": true,    "description": "Enable ANSI color output.",              "x-label": "Color enabled" },
+        "show_orchestrator":{ "type": "boolean", "default": true,    "description": "Show orchestrator row in the TUI.",      "x-label": "Show orchestrator row" },
+        "status_waiting":   { "$ref": "#/$defs/color_value",         "default": "dim",    "x-label": "Waiting status color" },
+        "status_running":   { "$ref": "#/$defs/color_value",         "default": "cyan",   "x-label": "Running status color" },
+        "status_complete":  { "$ref": "#/$defs/color_value",         "default": "green",  "x-label": "Complete status color" },
+        "status_error":     { "$ref": "#/$defs/color_value",         "default": "red",    "x-label": "Error status color" },
+        "status_skipped":   { "$ref": "#/$defs/color_value",         "default": "yellow", "x-label": "Skipped status color" },
+        "model_haiku":      { "$ref": "#/$defs/color_value",         "default": "green",  "x-label": "Haiku model color" },
+        "model_sonnet":     { "$ref": "#/$defs/color_value",         "default": "cyan",   "x-label": "Sonnet model color" },
+        "model_opus":       { "$ref": "#/$defs/color_value",         "default": "red",    "x-label": "Opus model color" },
+        "model_other":      { "$ref": "#/$defs/color_value",         "default": "",       "x-label": "Other model color" },
+        "separator":        { "$ref": "#/$defs/color_value",         "default": "dim",    "x-label": "Separator color" },
+        "row_bg":           { "$ref": "#/$defs/color_value",         "default": "",       "x-label": "Row background color" }
+      }
+    }
+
+  },
+
+  "$defs": {
+    "pricing_tier": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "input_per_1m":  { "type": "number", "minimum": 0, "description": "Input cost in USD per 1M tokens." },
+        "output_per_1m": { "type": "number", "minimum": 0, "description": "Output cost in USD per 1M tokens." }
+      }
+    },
+    "thinking_level": {
+      "type": "string",
+      "enum": ["low", "med", "high", "ext"],
+      "description": "Thinking effort level: low (routine), med (moderate), high (deep), ext (maximum)."
+    },
+    "color_value": {
+      "type": "string",
+      "description": "ANSI color name (e.g. cyan, bright_green), rgb(R,G,B), or empty string for terminal default.",
+      "pattern": "^(|dim|bold|black|red|green|yellow|blue|magenta|cyan|white|bright_black|bright_red|bright_green|bright_yellow|bright_blue|bright_magenta|bright_cyan|bright_white|rgb\\(\\s*\\d{1,3}\\s*,\\s*\\d{1,3}\\s*,\\s*\\d{1,3}\\s*\\))$"
+    }
+  }
+}
