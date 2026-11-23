@@ -201,6 +201,11 @@ def run_job(args):
     return 0 if errors == 0 else 1
 
 
+def run_configure(args):
+    from architekton import tui
+    return tui.run()
+
+
 def run_restore_config(args):
     if args.list_backups:
         backups = config.list_config_backups()
@@ -290,6 +295,12 @@ def build_parser():
              "(default: derived from each task's model tier via thinking_map config)",
     )
     job.set_defaults(run=run_job)
+
+    configure = commands.add_parser(
+        "configure",
+        help="interactive config editor (curses TUI)",
+    )
+    configure.set_defaults(run=run_configure)
 
     restore = commands.add_parser(
         "restore-config",
