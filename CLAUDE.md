@@ -10,6 +10,8 @@ auto-brain is a model-level advisor and cost governor for Claude Code. It automa
 
 The core constraint: Claude Code has no mid-session model switching API. All automatic selection happens at session start via a wrapper at `~/bin/claude`. Mid-session behavior is advisory only.
 
+**Known blocker:** anthropics/claude-code#111757 — UserPromptSubmit hooks don't receive CLAUDE_MODEL in subprocess environment. This prevents the warn hook from detecting mid-session model switches. Waiting on Claude Code team fix.
+
 Language: Python 3 (stdlib only -- no third-party packages in the hot path). Shell hooks in bash. No network calls during classification.
 
 ---
