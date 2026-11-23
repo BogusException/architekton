@@ -1,0 +1,4 @@
+{
+  "description": "auto-brain-warn hooks module",
+  "modules": ["./register.js"]
+}

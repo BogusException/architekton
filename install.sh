@@ -184,6 +184,36 @@ if [[ -d "$SKILL_SRC" ]]; then
   fi
 fi
 
+# 8. Mod installation (auto-brain-warn: in-process warn hook via Claude Code mods API).
+MOD_SRC="$REPO/src/mod"
+MOD_DEST="$BRAIN_HOME/mods"
+
+mkdir -p "$MOD_DEST/.claude-plugin"
+cp -r "$MOD_SRC/auto-brain-warn" "$MOD_DEST/"
+cp "$MOD_SRC/marketplace.json" "$MOD_DEST/.claude-plugin/marketplace.json"
+
+_marketplace_registered=0
+if claude plugin marketplace list 2>/dev/null | grep -q "auto-brain"; then
+  _marketplace_registered=1
+fi
+if [[ "$_marketplace_registered" == "0" ]]; then
+  claude plugin marketplace add "$MOD_DEST" 2>/dev/null && _marketplace_registered=1 || true
+fi
+
+_mod_installed=0
+if claude plugin list 2>/dev/null | grep -q "auto-brain-warn"; then
+  _mod_installed=1
+fi
+if [[ "$_mod_installed" == "0" && "$_marketplace_registered" == "1" ]]; then
+  claude plugin install auto-brain-warn@auto-brain 2>/dev/null && _mod_installed=1 || true
+fi
+
+if [[ "$_mod_installed" == "1" ]]; then
+  echo "mod installed: auto-brain-warn (restart Claude Code to activate)"
+else
+  echo "mod: could not auto-install -- run: claude plugin install auto-brain-warn@auto-brain"
+fi
+
 echo ""
 echo "installed. wrapper: $WRAPPER, hook: $HOOK, journal: $JOURNAL_HOOK"
 if [[ "$(command -v claude || true)" != "$WRAPPER" ]]; then
