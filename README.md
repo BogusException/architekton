@@ -160,20 +160,20 @@ ARCHITEKTON_DISABLE=1 claude
 
 Global config lives at `~/.claude/architekton/config.json`. Project overrides go in `.claude/architekton.json` in your project root. Project values win over global values.
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `enabled` | `true` | Set `false` to disable without uninstalling |
-| `mode` | `"auto"` | `"auto"` selects model at start; `"advisory"` only warns mid-session |
-| `default_model` | `"sonnet"` | Fallback when no fingerprint matches |
-| `thresholds.light` | `0.30` | Complexity at or below this -> Haiku |
-| `thresholds.heavy` | `0.65` | Complexity at or above this -> Opus |
-| `job.orchestrator_model` | `"opus"` | Model used to plan a job |
-| `job.worker_model` | `"haiku"` | Default model for each task worker |
-| `job.max_parallel` | `4` | Maximum concurrent worker sessions |
-| `job.worker_timeout` | `300` | Seconds before a worker session is killed |
-| `job.worker_max_turns` | `20` | Max turns per worker session |
-| `job.thinking_map` | `{haiku: low, sonnet: med, opus: high}` | Maps model tier to thinking effort |
-| `job.worker_thinking` | `""` | Force all workers to a fixed effort level |
+| Key                      | Default                                 | Description                                                          |
+| ------------------------ | --------------------------------------- | -------------------------------------------------------------------- |
+| `enabled`                | `true`                                  | Set `false` to disable without uninstalling                          |
+| `mode`                   | `"auto"`                                | `"auto"` selects model at start; `"advisory"` only warns mid-session |
+| `default_model`          | `"sonnet"`                              | Fallback when no fingerprint matches                                 |
+| `thresholds.light`       | `0.30`                                  | Complexity at or below this -> Haiku                                 |
+| `thresholds.heavy`       | `0.65`                                  | Complexity at or above this -> Opus                                  |
+| `job.orchestrator_model` | `"opus"`                                | Model used to plan a job                                             |
+| `job.worker_model`       | `"haiku"`                               | Default model for each task worker                                   |
+| `job.max_parallel`       | `4`                                     | Maximum concurrent worker sessions                                   |
+| `job.worker_timeout`     | `300`                                   | Seconds before a worker session is killed                            |
+| `job.worker_max_turns`   | `20`                                    | Max turns per worker session                                         |
+| `job.thinking_map`       | `{haiku: low, sonnet: med, opus: high}` | Maps model tier to thinking effort                                   |
+| `job.worker_thinking`    | `""`                                    | Force all workers to a fixed effort level                            |
 
 **Thinking effort levels:** `low`, `med`, `high`, `ext`. These are passed to Claude Code as the extended thinking budget. Unknown values pass through with a warning; common aliases (`medium`, `extreme`, `max`) are silently normalized.
 
@@ -278,6 +278,12 @@ No third-party Python packages in the hot path. The classifier and all session h
 ## About the name
 
 *architekton* (ἀρχιτέκτων) is the ancient Greek word for master builder -- from *archi* (chief, leader) and *tekton* (craftsman, builder). It is the direct ancestor of the English word "architect."
+
+![daedalus2](README_images/daedalus2.png)
+
+<div align="center">*A Roman mosaic from Zeugma, Commagene (now in the Zeugma Mosaic Museum) depicting Daedalus and his son Icarus.*</div>
+
+
 
 The word described the person who oversaw construction: not the one swinging a hammer, but the one who understood the whole structure, assigned the right craftsmen to the right work, and kept everything coherent as the parts came together. That is exactly what this tool does. The Opus orchestrator understands the goal and lays out the work. The Haiku workers execute their assigned pieces in parallel. Neither one could do the other's job as well.
 
