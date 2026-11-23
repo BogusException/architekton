@@ -70,7 +70,7 @@ The nudge appears above your prompt. It never blocks or delays your message.
 
 ### 3. Multi-agent job runner
 
-One command decomposes a goal into a directed acyclic graph (DAG) of tasks, then dispatches parallel Claude Code sessions -- one per task -- and displays a live TUI:
+One command decomposes a goal into a set of tasks ordered by their dependencies, then dispatches parallel Claude Code sessions -- one per task -- and displays a live TUI:
 
 ```
 ─────────────────────────────────────────────────────────────────────────────
@@ -260,7 +260,7 @@ config/
 bash test.sh
 ```
 
-108 tests, stdlib only, no external dependencies.
+145 tests, stdlib only, no external dependencies.
 
 ---
 
@@ -272,6 +272,24 @@ bash test.sh
 - Bash
 
 No third-party Python packages in the hot path. The classifier and all session hooks run on stdlib alone.
+
+---
+
+## About the name
+
+*architekton* (ἀρχιτέκτων) is the ancient Greek word for master builder -- from *archi* (chief, leader) and *tekton* (craftsman, builder). It is the direct ancestor of the English word "architect."
+
+The word described the person who oversaw construction: not the one swinging a hammer, but the one who understood the whole structure, assigned the right craftsmen to the right work, and kept everything coherent as the parts came together. That is exactly what this tool does. The Opus orchestrator understands the goal and lays out the work. The Haiku workers execute their assigned pieces in parallel. Neither one could do the other's job as well.
+
+The word appears in that sense as far back as Paul's first letter to the Corinthians (3:10), where he describes laying a foundation as a *sophos architekton* -- a skilled master builder. It has been in use for the same meaning for roughly two thousand years.
+
+If you search GitHub you will find several repositories using the name or close variations of it, most of them focused on software architecture tooling. The connection is intuitive enough that people keep arriving at it independently.
+
+---
+
+## Built with
+
+[Claude Code](https://claude.ai/code) -- Anthropic's AI coding assistant -- was used throughout the development of this project for design, implementation, testing, and documentation.
 
 ---
 
