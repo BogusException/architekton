@@ -82,7 +82,11 @@ def run_warn(args):
         if not config.is_enabled(cfg):
             return 0
         prompt = json.load(sys.stdin).get("prompt", "")
-        current = os.environ.get("CLAUDE_MODEL") or os.environ.get("AUTO_BRAIN_MODEL")
+        current = (
+            os.environ.get("CLAUDE_MODEL")
+            or os.environ.get("AUTO_BRAIN_MODEL")
+            or config.resolve_model()[0]
+        )
         current_tier = classifier.get_tier_of_model(current)
         result = classifier.classify(prompt, cfg)
         if current_tier is None or result["tier"] == current_tier:
