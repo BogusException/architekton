@@ -145,7 +145,9 @@ def run_job(args):
     real_claude  = orchestrator._find_real_claude()
 
     import time as _time
-    print(f"[auto-brain] Planning with {omodel}...", file=sys.stderr)
+    show_orch = cfg.get("tui", {}).get("show_orchestrator", True)
+    if not show_orch:
+        print(f"[auto-brain] Planning with {omodel}...", file=sys.stderr)
     ostart_time = _time.monotonic()
     try:
         tasks_raw = orchestrator.decompose(
@@ -169,7 +171,8 @@ def run_job(args):
         )
         for t in tasks_raw
     ]
-    print(f"[auto-brain] {len(tasks)} tasks planned.", file=sys.stderr)
+    if not show_orch:
+        print(f"[auto-brain] {len(tasks)} tasks planned.", file=sys.stderr)
 
     output_dir = (
         Path(os.environ.get("CLAUDE_CONFIG_DIR", "") or Path.home() / ".claude")
