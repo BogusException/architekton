@@ -44,7 +44,7 @@ echo ""
 
 # 1. Remove wrapper.
 if [[ -e "$WRAPPER" || -L "$WRAPPER" ]]; then
-  if grep -qF "$MARKER" "$WRAPPER" 2>/dev/null; then
+  if grep -qF "$MARKER" "$WRAPPER" 2>/dev/null || grep -qF "# auto-brain-wrapper" "$WRAPPER" 2>/dev/null; then
     _remove=$(ask "Remove wrapper $WRAPPER?" "Y")
     if [[ "$_remove" == "y" ]]; then
       # Restore a saved real-claude symlink if one was recorded.

@@ -94,7 +94,8 @@ backup_file() {
 }
 
 # 1. Refuse before changing anything if the wrapper slot holds something we cannot account for.
-if [[ -e "$WRAPPER" || -L "$WRAPPER" ]] && ! grep -qF "$MARKER" "$WRAPPER" 2>/dev/null && [[ ! -L "$WRAPPER" ]]; then
+_is_known_wrapper() { grep -qF "$MARKER" "$1" 2>/dev/null || grep -qF "# auto-brain-wrapper" "$1" 2>/dev/null; }
+if [[ -e "$WRAPPER" || -L "$WRAPPER" ]] && ! _is_known_wrapper "$WRAPPER" && [[ ! -L "$WRAPPER" ]]; then
   die "$WRAPPER exists and is not an architekton wrapper. Move it, or set ARCHITEKTON_BIN_DIR."
 fi
 if [[ -s "$SETTINGS" ]]; then
