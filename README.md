@@ -70,7 +70,7 @@ The nudge appears above your prompt. It never blocks or delays your message.
 
 ### 3. Multi-agent job runner
 
-One command decomposes a goal into a task DAG, then dispatches parallel Claude Code sessions -- one per task -- and displays a live TUI:
+One command decomposes a goal into a directed acyclic graph (DAG) of tasks, then dispatches parallel Claude Code sessions -- one per task -- and displays a live TUI:
 
 ```
 ─────────────────────────────────────────────────────────────────────────────
