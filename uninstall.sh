@@ -42,6 +42,16 @@ ask() {
 echo "=== architekton uninstall ==="
 echo ""
 
+# Early exit if nothing to uninstall.
+_wrapper_is_ours=0
+{ grep -qF "$MARKER" "$WRAPPER" 2>/dev/null || grep -qF "# auto-brain-wrapper" "$WRAPPER" 2>/dev/null; } && _wrapper_is_ours=1
+_has_pkg=0
+[[ -d "$BRAIN_HOME/lib/architekton" ]] && _has_pkg=1
+if [[ "$_wrapper_is_ours" == "0" && "$_has_pkg" == "0" ]]; then
+  echo "architekton does not appear to be installed. Nothing to remove."
+  exit 0
+fi
+
 # 1. Remove wrapper.
 if [[ -e "$WRAPPER" || -L "$WRAPPER" ]]; then
   if grep -qF "$MARKER" "$WRAPPER" 2>/dev/null || grep -qF "# auto-brain-wrapper" "$WRAPPER" 2>/dev/null; then
@@ -142,4 +152,4 @@ else
 fi
 
 echo ""
-echo "uninstall complete."
+echo "Done."

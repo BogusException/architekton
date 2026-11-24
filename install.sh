@@ -39,7 +39,15 @@ ask() {
   printf '%s\n' "${yn:0:1}" | tr '[:upper:]' '[:lower:]'
 }
 
-# 0. Prerequisites.
+# 0. Detect existing install.
+if [[ -d "$BRAIN_HOME/lib/architekton" ]]; then
+  echo "=== architekton is already installed -- reinstalling ==="
+else
+  echo "=== Installing architekton ==="
+fi
+echo ""
+
+# 1. Prerequisites.
 echo "=== Checking prerequisites ==="
 _prereq_ok=1
 
