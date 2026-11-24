@@ -25,7 +25,7 @@ for _arg in "$@"; do
   [[ "$_arg" == "--purge" ]] && PURGE=1
 done
 
-die() { echo "uninstall.sh: $*" >&2; exit 1; }
+die() { echo "scripts/uninstall.sh: $*" >&2; exit 1; }
 
 ask() {
   local prompt="$1" default="${2:-Y}" yn

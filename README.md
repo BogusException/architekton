@@ -1,8 +1,18 @@
 # architekton
 
-You're paying Opus prices for tasks Haiku would handle fine.
+- You're paying **Opus/Fable prices** for tasks Haiku would handle fine.
+- You want to pay **Opus prices** for *planning*, *reasoning*, and *thinking*, but pay **Haiku prices** for the tactical *doing*. 
+- You want to automatically have the LLM:
+    - **Parallel operations** at scale
+    - Have the LLM only use the **lowest cost model** it needs to think, and... 
+    - Use the **lowest cost model** needed to do the grunt-work, ...
+    - All while **auto-adjusting** to the work/objective/prompt(s).
 
-architekton wraps the `claude` CLI to automatically select the right model at session start, warns you mid-session when complexity changes, runs multi-agent jobs where an Opus planner dispatches parallel Haiku workers, and tracks per-project spend in a cost journal. No network calls. Classification runs in under 50 ms.
+<div align="center"> 
+
+#### But How?</div>
+
+**architekton** wraps the `claude` CLI to automatically select the right model at session start, warns you mid-session when complexity changes, runs multi-agent jobs where an Opus planner dispatches parallel Haiku workers, and tracks per-project spend in a cost journal. No network calls. Classification runs in under 50 ms.
 
 ---
 
@@ -17,7 +27,7 @@ architekton measures the work in front of you, picks the model that fits, and nu
 ## Install
 
 ```bash
-bash install.sh
+bash scripts/install.sh
 ```
 
 Requires Python 3.9+, Claude Code, and `jq`. The installer checks for all three before touching anything and exits with a clear message if one is missing -- no partial install to clean up. On most Linux systems `jq` is available via `apt install jq` or `dnf install jq`; on macOS via `brew install jq`. See https://jqlang.github.io/jq/ for all platforms. The installer:
@@ -27,14 +37,14 @@ Requires Python 3.9+, Claude Code, and `jq`. The installer checks for all three 
 3. Registers a `Stop` hook to record session stats in the cost journal
 4. Installs the `architekton-warn` Claude Code mod plugin
 
-After install, open a new shell (so `~/bin/claude` takes precedence over the system binary) and start Claude Code as normal. architekton operates silently in the background.
+After install, open a new shell (so `~/bin/claude` takes precedence over the system binary) and start Claude Code as normal. **architekton** operates silently in the background.
 
 For full prerequisites and manual verification steps, see `docs/install.md`.
 
 To remove everything:
 
 ```bash
-bash uninstall.sh
+bash scripts/uninstall.sh
 ```
 
 ---
@@ -51,7 +61,7 @@ Before launching Claude Code, the wrapper calls `advisor.py session-start`. This
   - Docs-only project with no source files -> Haiku
 - **Complexity thresholds**: if no fingerprint matches, the default model from config applies
 
-The selected model is passed to Claude Code via `--model`. If architekton is disabled or in advisory mode, Claude Code starts unchanged.
+The selected model is passed to Claude Code via `--model`. If **architekton** is disabled or in advisory mode, Claude Code starts unchanged.
 
 ### 2. Mid-session complexity warnings
 
@@ -77,10 +87,10 @@ One command decomposes a goal into a set of tasks ordered by their dependencies,
  architekton  "Build user auth API"   opus → workers
 ─────────────────────────────────────────────────────────────────────────────
   ✓  orch  opus 4.7         [high]  DONE  orchestrator  (4 tasks planned)   2.1s
-  ✓  W1    haiku 4.5        [low ]  DONE  Create user model                 18.4s
-  ✓  W2    haiku 4.5        [low ]  DONE  Write auth endpoints               31.2s
-  ⠸  W3    haiku 4.5        [low ]  RUN   Write tests                      14s/300s
-  ·  W4    haiku 4.5        [low ]  PEND  Update OpenAPI spec                  --
+  ✓  W1    haiku 4.5        [low ]  DONE  Create user model                18.4s
+  ✓  W2    haiku 4.5        [low ]  DONE  Write auth endpoints             31.2s
+  ⠸  W3    haiku 4.5        [low ]  RUN   Write tests                   14s/300s
+  ·  W4    haiku 4.5        [low ]  PEND  Update OpenAPI spec                 --
 ─────────────────────────────────────────────────────────────────────────────
   2 complete · 1 running · 1 waiting
 ```
@@ -242,7 +252,7 @@ src/architekton/
   journal.py       Cost journal: append, count turns, generate report
   orchestrator.py  Decomposes a goal into tasks via an LLM call
   runner.py        Parallel task executor with live ANSI TUI
-  hooks/           Shell hooks installed by install.sh
+  hooks/           Shell hooks installed by scripts/install.sh
 
 src/mod/
   architekton-warn/   Claude Code mod plugin (loads the warn hook into the editor)
@@ -257,13 +267,24 @@ config/
 
 ---
 
-## Tests
+## Developer scripts
+
+Five scripts at the project root cover the full contributor workflow. None of them start a background process -- each one runs, prints results, and exits.
+
+| Script | What it does |
+|---|---|
+| `dev-install.sh` | Creates `.venv` and installs architekton in editable mode. Run once after cloning, and again when `pyproject.toml` changes. |
+| `dev-uninstall.sh` | Removes `.venv`, build artifacts, and compiled bytecode. Reverses `dev-install.sh`. Does **not** uninstall architekton from your system -- use `scripts/uninstall.sh` for that. |
+| `dev-run.sh` | Prints the current architekton config and detected session model, then exits. One-shot status check only -- there is no persistent process, so there is no stop command. |
+| `dev-test.sh` | Runs the full test suite (145 tests, stdlib only, no network). |
+| `dev-configure.sh` | Opens the interactive TUI config editor. Press `q` to exit when done. |
+
+To install or remove architekton from your system, use the scripts in `scripts/`:
 
 ```bash
-bash dev-test.sh
+bash scripts/install.sh     # install
+bash scripts/uninstall.sh   # remove
 ```
-
-145 tests, stdlib only, no external dependencies.
 
 ---
 
@@ -285,8 +306,6 @@ No third-party Python packages in the hot path. The classifier and all session h
 ![daedalus2](README_images/daedalus2.png)
 
 <div align="center">*A Roman mosaic from Zeugma, Commagene (now in the Zeugma Mosaic Museum) depicting Daedalus and his son Icarus.*</div>
-
-
 
 The word described the person who oversaw construction: not the one swinging a hammer, but the one who understood the whole structure, assigned the right craftsmen to the right work, and kept everything coherent as the parts came together. That is exactly what this tool does. The Opus orchestrator understands the goal and lays out the work. The Haiku workers execute their assigned pieces in parallel. Neither one could do the other's job as well.
 

@@ -25,5 +25,5 @@ The installer modifies `~/.claude/settings.json` to register the warn hook. No o
 ## 4. Claude Code boundaries
 
 - Claude must not read or write `~/.claude/architekton/cost-journal.jsonl` directly (Phase 3 will own that through `journal.py`).
-- Claude must not modify `~/.claude/settings.json` hooks except through `install.sh`.
+- Claude must not modify `~/.claude/settings.json` hooks except through `scripts/install.sh`.
 - No additional restrictions beyond defaults in `.claude/settings.json`.

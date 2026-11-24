@@ -24,7 +24,7 @@ for _arg in "$@"; do
   [[ "$_arg" == "--yes" || "$_arg" == "-y" ]] && INTERACTIVE=0
 done
 
-die() { echo "install.sh: $*" >&2; exit 1; }
+die() { echo "scripts/install.sh: $*" >&2; exit 1; }
 
 # ask PROMPT DEFAULT -- prints "y" or "n". DEFAULT must be Y or N (uppercase).
 ask() {

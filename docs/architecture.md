@@ -22,7 +22,7 @@ The core constraint: Claude Code has no mid-session model switching API. All aut
 | Runner | Executes task DAG with parallel workers and a live ANSI TUI | `src/architekton/runner.py` |
 | Warn hook | `UserPromptSubmit` hook: classifies prompt, injects mismatch warning | `src/architekton/hooks/architekton-warn.sh` |
 | Journal hook | `Stop` hook: counts turns, appends session record to cost journal | `src/architekton/hooks/cost-journal.sh` |
-| Installer | Copies wrapper, registers hooks, writes global config | `install.sh` |
+| Installer | Copies wrapper, registers hooks, writes global config | `scripts/install.sh` |
 
 ## 3. Config hierarchy (highest to lowest priority)
 
@@ -154,7 +154,7 @@ Complexity momentum: if the last `momentum_window` prompts averaged >= heavy thr
 | Dependency | Type | Purpose |
 |---|---|---|
 | Python 3.9+ stdlib only | local | advisor, classifier, fingerprint, journal, config |
-| `jq` | system CLI | `install.sh` edits `~/.claude/settings.json` |
+| `jq` | system CLI | `scripts/install.sh` edits `~/.claude/settings.json` |
 | `claude` binary | system CLI | the real Claude Code binary the wrapper calls |
 
 No third-party Python packages. No network calls in the hot path.

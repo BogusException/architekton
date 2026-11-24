@@ -6,7 +6,7 @@
 
 - Python 3.9+
 - Claude Code installed and on your `PATH` (the real `claude` binary, not the wrapper)
-- `jq` -- used by `install.sh` to edit `~/.claude/settings.json`
+- `jq` -- used by `scripts/install.sh` to edit `~/.claude/settings.json`
 - `~/bin` on your `PATH` before the system `claude` binary (the installer places the wrapper there)
 
 Verify PATH order: `which claude` should resolve to `~/bin/claude` after install. If it doesn't, add `export PATH="$HOME/bin:$PATH"` to your shell profile.
@@ -16,7 +16,7 @@ Verify PATH order: `which claude` should resolve to `~/bin/claude` after install
 1. Clone the repo: `git clone <repo-url> && cd architekton`
 2. Create the venv: `python -m venv .venv && source .venv/bin/activate`
 3. Install development dependencies: `pip install -r requirements.txt`
-4. Run the installer: `bash install.sh`
+4. Run the installer: `bash scripts/install.sh`
 
 The installer is idempotent. Running it again on an already-installed system is safe -- it skips steps that are already in place.
 

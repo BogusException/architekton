@@ -25,6 +25,6 @@ After install, `claude` just works. The wrapper is transparent -- every session 
 
 ## 3. Environment modes
 
-This project has no staging or production deployment. It runs identically on every machine after `install.sh`. Config is per-user (`~/.claude/architekton/config.json`) and per-project (`.claude/architekton.json`).
+This project has no staging or production deployment. It runs identically on every machine after `scripts/install.sh`. Config is per-user (`~/.claude/architekton/config.json`) and per-project (`.claude/architekton.json`).
 
 The only runtime distinction is `ARCHITEKTON_DISABLE=1`, which bypasses architekton for a single session without changing any config.

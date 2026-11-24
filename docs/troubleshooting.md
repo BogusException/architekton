@@ -6,7 +6,7 @@
 |---------|-------------|-----|
 | `[architekton]` advisory never appears | `~/bin/claude` not on PATH before real `claude` | Add `export PATH="$HOME/bin:$PATH"` to shell profile; verify with `which claude` |
 | Wrapper launches but picks wrong model | Project config (``.claude/architekton.json``) has an explicit `default_model` | Check `advisor status` -- the source field shows which config won |
-| Hook advisory never fires mid-session | Warn hook not registered | Check `.claude/settings.json` for a `UserPromptSubmit` entry pointing to `architekton-warn.sh`; re-run `install.sh` if missing |
+| Hook advisory never fires mid-session | Warn hook not registered | Check `.claude/settings.json` for a `UserPromptSubmit` entry pointing to `architekton-warn.sh`; re-run `scripts/install.sh` if missing |
 | `architekton: mode must be one of ...` | Invalid `mode` value in a config file | Valid values: `"auto"`, `"advisory"` |
 | `architekton: <path>: invalid JSON` | Corrupt config file | Check the file named in the error; fix or delete it (`load()` falls back to defaults for missing files) |
 | Tests fail with `ModuleNotFoundError` | Running without `PYTHONPATH` set | Use `PYTHONPATH=src python -m unittest discover -s tests` or `bash dev-test.sh` |

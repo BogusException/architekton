@@ -20,7 +20,7 @@ Run this check first:
 If the output is `not_installed`:
 
 Tell the user:
-> architekton is not installed. Run `bash install.sh` from the architekton repository, then try again.
+> architekton is not installed. Run `bash scripts/install.sh` from the architekton repository, then try again.
 > See docs/install.md for prerequisites (python3, jq, ~/bin in PATH).
 
 Stop here.
