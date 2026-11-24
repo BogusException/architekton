@@ -410,9 +410,9 @@ class _TUI:
         # Separator above hint
         sep_y = box_h - 3
         try:
-            win.addch(sep_y, 0,          curses.ACS_LTEE)
-            win.addstr(sep_y, 1,         curses.ACS_HLINE * (box_w - 2), bg)
-            win.addch(sep_y, box_w - 1,  curses.ACS_RTEE)
+            win.addch(sep_y, 0,         curses.ACS_LTEE)
+            win.hline(sep_y, 1,         curses.ACS_HLINE, box_w - 2)
+            win.addch(sep_y, box_w - 1, curses.ACS_RTEE)
         except curses.error:
             pass
 
@@ -620,7 +620,7 @@ class _TUI:
             sep_y = box_h - 3
             try:
                 win.addch(sep_y, 0,         curses.ACS_LTEE)
-                win.addstr(sep_y, 1,        curses.ACS_HLINE * (box_w - 2), bg)
+                win.hline(sep_y, 1, curses.ACS_HLINE, box_w - 2)
                 win.addch(sep_y, box_w - 1, curses.ACS_RTEE)
             except curses.error:
                 pass
