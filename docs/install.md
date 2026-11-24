@@ -14,11 +14,10 @@ Verify PATH order: `which claude` should resolve to `~/bin/claude` after install
 ## 2. Setup
 
 1. Clone the repo: `git clone <repo-url> && cd architekton`
-2. Create the venv: `python -m venv .venv && source .venv/bin/activate`
-3. Install development dependencies: `pip install -r requirements.txt`
-4. Run the installer: `bash scripts/install.sh`
+2. Set up the dev environment: `bash dev-install.sh`
+3. Install architekton on your system: `bash scripts/install.sh`
 
-The installer is idempotent. Running it again on an already-installed system is safe -- it skips steps that are already in place.
+Both scripts are safe to re-run. `dev-install.sh` will announce if a venv already exists and skip recreating it. `scripts/install.sh` will announce "already installed -- reinstalling" and overwrite the previous install.
 
 ## 3. Verifying the install
 
@@ -26,11 +25,11 @@ The installer is idempotent. Running it again on an already-installed system is 
 # Confirm the wrapper is in place
 which claude   # should show ~/bin/claude
 
-# Check current config and detected model
-PYTHONPATH=src python -m architekton.advisor status
+# Check current config and detected session model
+bash dev-run.sh
 
 # Run the full test suite
-bash dev-test.sh   # all 37 tests should pass
+bash dev-test.sh
 ```
 
-If `advisor status` prints `state: enabled` and a model source, the install succeeded.
+If `dev-run.sh` prints `state: enabled` and a model source, the install succeeded.

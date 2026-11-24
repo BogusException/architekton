@@ -21,6 +21,10 @@ echo "Installing architekton in editable mode ..."
 "$PIP" install -e "$REPO" --quiet
 
 echo ""
-echo "Done. To use:"
-echo "  source $VENV/bin/activate"
-echo "  python -m architekton.advisor --help"
+echo "Done. Next steps:"
+echo "  dev-configure.sh   open the interactive config editor"
+echo "  dev-run.sh         show current config and detected session model"
+echo "  dev-test.sh        run the full test suite"
+echo "  dev-uninstall.sh   remove the dev environment"
+echo ""
+echo "To install architekton on your system: bash scripts/install.sh"

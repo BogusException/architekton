@@ -12,7 +12,7 @@ find_real_claude() {
     echo "$AUTO_BRAIN_REAL_CLAUDE"
     return 0
   fi
-  # install.sh records the target when it replaces a symlinked claude.
+  # scripts/install.sh records the target when it replaces a symlinked claude.
   if [[ -r "$BRAIN_HOME/real-claude" ]]; then
     recorded="$(<"$BRAIN_HOME/real-claude")"
     if [[ -x "$recorded" ]]; then
