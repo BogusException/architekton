@@ -17,8 +17,8 @@ fi
 # Always use the venv's own pip -- never whatever pip is on PATH
 PIP="$VENV/bin/pip"
 
-echo "Installing architekton in editable mode ..."
-"$PIP" install -e "$REPO" --quiet
+echo "Installing architekton in editable mode (with dev dependencies) ..."
+"$PIP" install -e "$REPO[dev]" --quiet
 
 echo ""
 echo "Done. Next steps:"

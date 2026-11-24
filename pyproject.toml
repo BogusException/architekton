@@ -9,6 +9,10 @@ description = "Automatic model selection and cost governance for Claude Code"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 
+[project.optional-dependencies]
+# Install with: pip install -e ".[dev]"
+dev = ["pyyaml"]
+
 [project.scripts]
 architekton = "architekton.advisor:main"
 
