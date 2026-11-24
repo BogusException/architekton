@@ -19,7 +19,19 @@ Verify PATH order: `which claude` should resolve to `~/bin/claude` after install
 
 Both scripts are safe to re-run. `dev-install.sh` will announce if a venv already exists and skip recreating it. `scripts/install.sh` will announce "already installed -- reinstalling" and overwrite the previous install.
 
-## 3. Verifying the install
+## 3. Configure architekton
+
+The installer places `architekton-configure` on your PATH. Run it once to review the defaults and adjust anything you want:
+
+```bash
+architekton-configure
+```
+
+The editor shows every available setting with a short description. Use arrow keys to navigate, type to edit a value, and press `s` to save. Press `q` to exit without saving.
+
+Your settings are written to `~/.claude/architekton/config.json`. You can re-run `architekton-configure` any time -- it never overwrites unsaved changes.
+
+## 4. Verifying the install
 
 ```bash
 # Confirm the wrapper is in place

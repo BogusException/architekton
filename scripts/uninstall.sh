@@ -81,6 +81,15 @@ else
   echo "wrapper not present, skipping"
 fi
 
+# 1b. Remove architekton-configure helper.
+CONFIGURE_CMD="$BIN_DIR/architekton-configure"
+if [[ -f "$CONFIGURE_CMD" ]]; then
+  rm "$CONFIGURE_CMD"
+  echo "removed $CONFIGURE_CMD"
+else
+  echo "architekton-configure not present, skipping"
+fi
+
 # 2. Remove hooks from settings.json.
 if [[ -s "$SETTINGS" ]] && jq empty "$SETTINGS" 2>/dev/null; then
   _has_hooks=$(jq '

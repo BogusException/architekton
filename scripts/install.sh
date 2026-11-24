@@ -135,6 +135,18 @@ fi
 cp "$REPO/src/architekton/hooks/claude-wrapper.sh" "$WRAPPER"
 chmod +x "$WRAPPER"
 
+# 4b. architekton-configure: a convenience command for editing your config.
+#     This is the only way to open the config editor after a system install.
+#     (The TUI is not on PATH otherwise; it lives inside the installed package.)
+CONFIGURE_CMD="$BIN_DIR/architekton-configure"
+printf '%s\n' '#!/usr/bin/env bash
+# architekton-configure -- open the interactive architekton config editor.
+# Installed by scripts/install.sh. Remove with scripts/uninstall.sh.
+BRAIN_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/architekton"
+PYTHONPATH="$BRAIN_HOME/lib${PYTHONPATH:+:$PYTHONPATH}" exec python3 -m architekton.advisor configure "$@"' >"$CONFIGURE_CMD"
+chmod +x "$CONFIGURE_CMD"
+echo "wrote $CONFIGURE_CMD"
+
 # 5. Register the UserPromptSubmit hook.
 if [[ ! -e "$SETTINGS" ]]; then
   mkdir -p "$CLAUDE_DIR"

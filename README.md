@@ -49,6 +49,32 @@ bash scripts/uninstall.sh
 
 ---
 
+## Configuring architekton
+
+The installer places a `architekton-configure` command on your PATH. Run it any time you want to change settings:
+
+```bash
+architekton-configure
+```
+
+This opens the interactive TUI config editor. Use the arrow keys to move between fields and type to change a value. When you're done:
+
+- Press `s` to save and exit.
+- Press `q` to exit without saving.
+
+Your config is stored at `~/.claude/architekton/config.json`. The editor shows you every available option, its current value, and a short description of what it controls. You never need to edit the JSON file by hand.
+
+To configure a specific project (settings that override your global config only for that directory):
+
+```bash
+cd /path/to/your/project
+architekton-configure
+```
+
+architekton detects the working directory and writes a project-level config alongside the global one. The global config applies everywhere; the project config applies only inside that directory.
+
+---
+
 ## What it does
 
 ### 1. Automatic model selection at session start
@@ -277,7 +303,7 @@ Five scripts at the project root cover the full contributor workflow. None of th
 | `dev-uninstall.sh` | Removes `.venv`, build artifacts, and compiled bytecode. Reverses `dev-install.sh`. Does **not** uninstall architekton from your system -- use `scripts/uninstall.sh` for that. |
 | `dev-run.sh` | Prints the current architekton config and detected session model, then exits. One-shot status check only -- there is no persistent process, so there is no stop command. |
 | `dev-test.sh` | Runs the full test suite (145 tests, stdlib only, no network). |
-| `dev-configure.sh` | Opens the interactive TUI config editor. Press `q` to exit when done. |
+| `dev-configure.sh` | Opens the interactive TUI config editor using the dev environment (runs from source). For post-install use, run `architekton-configure` instead -- that uses the installed package. |
 
 To install or remove architekton from your system, use the scripts in `scripts/`:
 
