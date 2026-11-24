@@ -28,3 +28,10 @@ done
 echo ""
 echo "Done. To reinstall the dev environment, run: bash dev-install.sh"
 echo "To uninstall architekton from the system, run: bash scripts/uninstall.sh"
+
+if [[ -n "${VIRTUAL_ENV:-}" ]]; then
+    echo ""
+    echo "Your shell still shows (.venv) because the venv was active when you ran this."
+    echo "The .venv directory is gone, but your current shell session still points to it."
+    echo "Run this now: deactivate"
+fi
