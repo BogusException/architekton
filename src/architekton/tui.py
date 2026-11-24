@@ -384,6 +384,11 @@ class _TUI:
         bg = curses.color_pair(_C_DIALOG_BG)
         win.bkgd(' ', bg)
         win.erase()
+        for _y in range(box_h):
+            try:
+                win.addstr(_y, 0, ' ' * box_w, bg)
+            except curses.error:
+                pass
         win.box()
 
         # Title centered in top border line
@@ -494,19 +499,24 @@ class _TUI:
         return self._do_save()
 
     def _prompt_quit(self) -> bool:
-        if not self._dirty():
-            return True
+        if self._dirty():
+            ch = self._dialog(
+                "Unsaved changes",
+                ["You have unsaved changes.", ""],
+                "s = save & quit    d = discard & quit    esc = cancel",
+            )
+            if ch in (ord("s"), ord("S")):
+                self._do_save()
+                return True
+            if ch in (ord("d"), ord("D")):
+                return True
+            return False
         ch = self._dialog(
-            "Unsaved changes",
-            ["You have unsaved changes.", ""],
-            "s = save & quit    d = discard & quit    esc = cancel",
+            "Quit",
+            ["No unsaved changes.", ""],
+            "q/enter = quit    esc = cancel",
         )
-        if ch in (ord("s"), ord("S")):
-            self._do_save()
-            return True
-        if ch in (ord("d"), ord("D")):
-            return True
-        return False
+        return ch in (ord("q"), ord("Q"), 10, 13)
 
     def _prompt_restore(self):
         ch = self._dialog(
@@ -578,6 +588,11 @@ class _TUI:
             bg  = curses.color_pair(_C_DIALOG_BG)
             win.bkgd(' ', bg)
             win.erase()
+            for _y in range(box_h):
+                try:
+                    win.addstr(_y, 0, ' ' * box_w, bg)
+                except curses.error:
+                    pass
             win.box()
 
             title_disp = f" Backups ({len(entries)}) "
@@ -723,6 +738,8 @@ class _TUI:
             elif ch == curses.KEY_RESIZE:
                 self._scr.clear()
 
+        self._scr.clear()
+        self._scr.refresh()
         return 0
 
 
