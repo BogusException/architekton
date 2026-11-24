@@ -386,7 +386,7 @@ class _TUI:
         win.erase()
         for _y in range(box_h):
             try:
-                win.addstr(_y, 0, ' ' * box_w, bg)
+                win.insstr(_y, 0, ' ' * box_w, bg)
             except curses.error:
                 pass
         win.box()
@@ -514,9 +514,9 @@ class _TUI:
         ch = self._dialog(
             "Quit",
             ["No unsaved changes.", ""],
-            "q/enter = quit    esc = cancel",
+            "q = quit    esc/enter = cancel",
         )
-        return ch in (ord("q"), ord("Q"), 10, 13)
+        return ch in (ord("q"), ord("Q"))
 
     def _prompt_restore(self):
         ch = self._dialog(
