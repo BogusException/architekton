@@ -3,10 +3,10 @@
 Keyboard (main screen):
   arrows / j / k    move between fields
   space / enter     toggle bool, cycle enum, begin text edit
-  s                 save (confirms before writing)
+  s                 save (floating confirm dialog)
   b                 browse and restore from a saved backup
-  r                 restore factory defaults (confirms)
-  q                 quit (s=save+quit, d=discard+quit, esc=cancel if dirty)
+  r                 restore factory defaults (floating confirm dialog)
+  q                 quit (floating dialog: s=save+quit, d=discard, esc=cancel)
   ESC               cancel text edit
 """
 
@@ -35,18 +35,18 @@ class _Field:
     path: list
     label: str
     section: str
-    ftype: str          # boolean | string | number | integer
-    enum: Any           # list of allowed values, or None
+    ftype: str
+    enum: Any
     minimum: Any
     maximum: Any
     default: Any
-    is_object: bool     # True for dict-valued fields (thinking_map)
+    is_object: bool
 
 
 @dataclass
 class _BackupEntry:
     path: Path
-    dt: Any             # datetime.datetime or None
+    dt: Any        # datetime.datetime or None
     size: int
     crc32: str
 
@@ -54,7 +54,6 @@ class _BackupEntry:
 # ── schema flattening ──────────────────────────────────────────────────────
 
 def _flatten(schema: dict) -> list:
-    """Return ordered list of _Section / _Field items from the schema."""
     root = schema
 
     def ref(node):
@@ -120,12 +119,11 @@ def _flatten(schema: dict) -> list:
 # ── backup helpers ─────────────────────────────────────────────────────────
 
 def _load_backups() -> list:
-    """Return list of _BackupEntry, newest first."""
     entries = []
     for p in _cfg.list_config_backups():
         try:
             data = p.read_bytes()
-            stem = p.stem  # config.20261123013218
+            stem = p.stem
             ts = stem.split(".", 1)[1] if "." in stem else ""
             try:
                 dt = datetime.datetime.strptime(ts, "%Y%m%d%H%M%S")
@@ -170,7 +168,6 @@ def _display(value: Any, ftype: str, is_object: bool) -> str:
 
 
 def _parse(s: str, ftype: str, is_object: bool):
-    """Parse a string into a typed value. Returns None on parse failure."""
     s = s.strip()
     if is_object:
         result = {}
@@ -194,16 +191,22 @@ def _parse(s: str, ftype: str, is_object: bool):
     return s
 
 
+# ── color pair IDs ─────────────────────────────────────────────────────────
+
+_C_SECTION     = 1
+_C_SEL         = 2
+_C_VAL         = 3
+_C_ERR         = 4
+_C_EDIT        = 5
+_C_DIALOG_BG   = 6   # dialog interior: white-on-blue
+_C_DIALOG_TTL  = 7   # dialog title: yellow-on-blue
+_C_DIALOG_HINT = 8   # dialog hint bar: cyan-on-blue
+_C_BACKUP_SEL  = 9   # selected row in backup list
+
+
 # ── TUI ───────────────────────────────────────────────────────────────────
 
 _HELP = "s:save  b:backups  r:factory-reset  q:quit  ↑↓/jk:move  sp/enter:edit  esc:cancel"
-
-_C_SECTION = 1
-_C_SEL     = 2
-_C_VAL     = 3
-_C_ERR     = 4
-_C_EDIT    = 5
-_C_BACKUP  = 6   # selected row in backup picker
 
 
 class _TUI:
@@ -224,12 +227,15 @@ class _TUI:
         try:
             curses.start_color()
             curses.use_default_colors()
-            curses.init_pair(_C_SECTION, curses.COLOR_CYAN,   -1)
-            curses.init_pair(_C_SEL,     curses.COLOR_GREEN,  -1)
-            curses.init_pair(_C_VAL,     curses.COLOR_YELLOW, -1)
-            curses.init_pair(_C_ERR,     curses.COLOR_RED,    -1)
-            curses.init_pair(_C_EDIT,    curses.COLOR_WHITE,  curses.COLOR_BLUE)
-            curses.init_pair(_C_BACKUP,  curses.COLOR_BLACK,  curses.COLOR_CYAN)
+            curses.init_pair(_C_SECTION,     curses.COLOR_CYAN,   -1)
+            curses.init_pair(_C_SEL,         curses.COLOR_GREEN,  -1)
+            curses.init_pair(_C_VAL,         curses.COLOR_YELLOW, -1)
+            curses.init_pair(_C_ERR,         curses.COLOR_RED,    -1)
+            curses.init_pair(_C_EDIT,        curses.COLOR_WHITE,  curses.COLOR_BLUE)
+            curses.init_pair(_C_DIALOG_BG,   curses.COLOR_WHITE,  curses.COLOR_BLUE)
+            curses.init_pair(_C_DIALOG_TTL,  curses.COLOR_YELLOW, curses.COLOR_BLUE)
+            curses.init_pair(_C_DIALOG_HINT, curses.COLOR_CYAN,   curses.COLOR_BLUE)
+            curses.init_pair(_C_BACKUP_SEL,  curses.COLOR_BLACK,  curses.COLOR_CYAN)
         except curses.error:
             pass
 
@@ -322,20 +328,115 @@ class _TUI:
 
         scr.refresh()
 
-    def _field(self) -> _Field:
-        return self._items[self._sel_idx()]
+    # ── floating dialog ────────────────────────────────────────────────────
 
-    # ── confirmation gate ──────────────────────────────────────────────────
+    def _dialog(self, title: str, body: list, hint: str) -> int:
+        """Draw a floating modal box over the current screen. Returns the key pressed.
 
-    def _confirm(self, msg: str) -> bool:
-        """Show msg at the status bar and return True only if user presses y/Y."""
-        self._msg = msg
+        body is a list of strings (blank strings become blank lines).
+        hint is the keys/instruction line shown at the bottom of the box.
+        """
+        h, w = self._h(), self._w()
+
+        inner_w = max(
+            len(title) + 4,
+            max((len(line) for line in body), default=0) + 2,
+            len(hint) + 4,
+            30,
+        )
+        # 2 border cols + 2 padding cols each side = 4 overhead; cap at screen width
+        box_w = min(inner_w + 4, w - 4)
+        # top/bottom border + blank row after title border + body + separator + hint + bottom border
+        box_h = len(body) + 5
+
+        top  = max(1, (h - box_h) // 2)
+        left = max(2, (w - box_w) // 2)
+
+        # Drop shadow: one column right + one row down from box edges
+        shadow_attr = curses.A_DIM
+        for dy in range(1, box_h + 1):
+            sy = top + dy
+            sx = left + box_w
+            if 0 <= sy < h and 0 <= sx < w - 1:
+                try:
+                    self._scr.addch(sy, sx, ' ', shadow_attr)
+                except curses.error:
+                    pass
+        for dx in range(2, box_w + 2):
+            sy = top + box_h
+            sx = left + dx
+            if 0 <= sy < h and 0 <= sx < w - 1:
+                try:
+                    self._scr.addch(sy, sx, ' ', shadow_attr)
+                except curses.error:
+                    pass
+        self._scr.refresh()
+
+        # Floating window
+        try:
+            win = curses.newwin(box_h, box_w, top, left)
+        except curses.error:
+            # Terminal too small -- fall back to status bar
+            self._msg = body[0] if body else hint
+            self._draw()
+            return self._scr.getch()
+
+        bg = curses.color_pair(_C_DIALOG_BG)
+        win.bkgd(' ', bg)
+        win.erase()
+        win.box()
+
+        # Title centered in top border line
+        title_disp = f" {title} "
+        if len(title_disp) > box_w - 2:
+            title_disp = title_disp[:box_w - 3] + " "
+        tx = max(1, (box_w - len(title_disp)) // 2)
+        try:
+            win.addstr(0, tx, title_disp,
+                       curses.color_pair(_C_DIALOG_TTL) | curses.A_BOLD)
+        except curses.error:
+            pass
+
+        # Body lines (left-padded, not centered, so they read naturally)
+        for i, line in enumerate(body):
+            y = i + 2
+            if y >= box_h - 3:
+                break
+            try:
+                win.addstr(y, 3, line[:box_w - 6], bg)
+            except curses.error:
+                pass
+
+        # Separator above hint
+        sep_y = box_h - 3
+        try:
+            win.addch(sep_y, 0,          curses.ACS_LTEE)
+            win.addstr(sep_y, 1,         curses.ACS_HLINE * (box_w - 2), bg)
+            win.addch(sep_y, box_w - 1,  curses.ACS_RTEE)
+        except curses.error:
+            pass
+
+        # Hint centered above bottom border
+        hint_disp = hint[:box_w - 4]
+        hx = max(2, (box_w - len(hint_disp)) // 2)
+        try:
+            win.addstr(box_h - 2, hx, hint_disp,
+                       curses.color_pair(_C_DIALOG_HINT) | curses.A_BOLD)
+        except curses.error:
+            pass
+
+        win.refresh()
+        ch = win.getch()
+        del win
+
+        # Repaint main screen (curses doesn't restore what was behind a window)
         self._draw()
-        ch = self._scr.getch()
-        self._msg = ""
-        return ch in (ord("y"), ord("Y"))
+        return ch
 
     # ── edit ───────────────────────────────────────────────────────────────
+
+    def _field(self) -> _Field:
+        return self._items[self._sel_idx()]
 
     def _activate(self):
         item = self._field()
@@ -372,7 +473,6 @@ class _TUI:
     # ── save / quit / restore ──────────────────────────────────────────────
 
     def _do_save(self) -> bool:
-        """Write config without prompting. Called after confirmation."""
         try:
             _cfg.save_global_config(self._values)
             self._saved = json.dumps(self._values, sort_keys=True)
@@ -383,19 +483,24 @@ class _TUI:
             return False
 
     def _save(self) -> bool:
-        if not self._confirm("Save changes? (y/N)"):
+        ch = self._dialog(
+            "Save config",
+            ["Write current values to ~/.claude/architekton/config.json?", ""],
+            "y = save    any other key = cancel",
+        )
+        if ch not in (ord("y"), ord("Y")):
             self._msg = "Save cancelled."
             return False
         return self._do_save()
 
     def _prompt_quit(self) -> bool:
-        """Return True if the caller should exit."""
         if not self._dirty():
             return True
-        self._msg = "Unsaved changes: (s)ave and quit  (d)iscard and quit  (esc) cancel"
-        self._draw()
-        ch = self._scr.getch()
-        self._msg = ""
+        ch = self._dialog(
+            "Unsaved changes",
+            ["You have unsaved changes.", ""],
+            "s = save & quit    d = discard & quit    esc = cancel",
+        )
         if ch in (ord("s"), ord("S")):
             self._do_save()
             return True
@@ -404,7 +509,17 @@ class _TUI:
         return False
 
     def _prompt_restore(self):
-        if not self._confirm("Reset to factory defaults? All unsaved changes will be lost. (y/N)"):
+        ch = self._dialog(
+            "Factory reset",
+            [
+                "Replace the current config with the factory defaults.",
+                "All unsaved changes will be lost.",
+                "",
+                "This creates a backup before overwriting.",
+            ],
+            "y = reset to factory defaults    any other key = cancel",
+        )
+        if ch not in (ord("y"), ord("Y")):
             return
         try:
             _cfg.restore_config(backup_path=None)
@@ -419,49 +534,108 @@ class _TUI:
     def _show_backups(self):
         entries = _load_backups()
         if not entries:
-            self._msg = "No backups found."
+            self._dialog(
+                "Backups",
+                ["No backups found.", "", "Backups are created automatically on each save."],
+                "any key to close",
+            )
             return
+
+        h, w = self._h(), self._w()
+        box_h = min(len(entries) + 7, h - 4)
+        box_w = min(74, w - 4)
+        top   = max(1, (h - box_h) // 2)
+        left  = max(2, (w - box_w) // 2)
 
         cursor = 0
         scroll = 0
+        list_rows = box_h - 6   # rows available for the list
 
         while True:
-            scr, h, w = self._scr, self._h(), self._w()
-            scr.erase()
+            h, w = self._h(), self._w()
+
+            # Drop shadow
+            shadow_attr = curses.A_DIM
+            for dy in range(1, box_h + 1):
+                if 0 <= top + dy < h and left + box_w < w - 1:
+                    try:
+                        self._scr.addch(top + dy, left + box_w, ' ', shadow_attr)
+                    except curses.error:
+                        pass
+            for dx in range(2, box_w + 2):
+                if top + box_h < h and 0 <= left + dx < w - 1:
+                    try:
+                        self._scr.addch(top + box_h, left + dx, ' ', shadow_attr)
+                    except curses.error:
+                        pass
+            self._scr.refresh()
 
             try:
-                scr.addstr(0, 0, f" architekton config -- backups ({len(entries)})".ljust(w - 1), curses.A_BOLD)
-                scr.addstr(1, 0, "─" * (w - 1))
+                win = curses.newwin(box_h, box_w, top, left)
+            except curses.error:
+                break
+
+            bg  = curses.color_pair(_C_DIALOG_BG)
+            win.bkgd(' ', bg)
+            win.erase()
+            win.box()
+
+            title_disp = f" Backups ({len(entries)}) "
+            tx = max(1, (box_w - len(title_disp)) // 2)
+            try:
+                win.addstr(0, tx, title_disp,
+                           curses.color_pair(_C_DIALOG_TTL) | curses.A_BOLD)
             except curses.error:
                 pass
 
-            visible = h - 4
+            # Column header
+            hdr = f"  {'Date / time':<20}  {'Size':>8}   CRC32"
+            try:
+                win.addstr(1, 1, hdr[:box_w - 2], curses.color_pair(_C_DIALOG_HINT))
+            except curses.error:
+                pass
+
+            # Adjust scroll
             if cursor < scroll:
                 scroll = cursor
-            elif cursor >= scroll + visible:
-                scroll = cursor - visible + 1
+            elif cursor >= scroll + list_rows:
+                scroll = cursor - list_rows + 1
 
             for i, e in enumerate(entries):
                 row = i - scroll + 2
-                if row < 2 or row >= h - 2:
+                if row < 2 or row >= box_h - 4:
                     continue
-                dt_str = e.dt.strftime("%Y-%m-%d  %H:%M:%S") if e.dt else "unknown date"
-                size_str = f"{e.size / 1024:.1f} KB" if e.size >= 1024 else f"{e.size} B"
-                line = f"  {'>' if i == cursor else ' '}  {dt_str}   {size_str:>8}   CRC: {e.crc32}"
-                attr = curses.color_pair(_C_BACKUP) | curses.A_BOLD if i == cursor else 0
+                dt_str = e.dt.strftime("%Y-%m-%d  %H:%M:%S") if e.dt else "unknown"
+                size_str = (f"{e.size / 1024:.1f} KB" if e.size >= 1024
+                            else f"{e.size} B")
+                line = f"  {'>' if i == cursor else ' '}  {dt_str:<20}  {size_str:>8}   {e.crc32}"
+                attr = (curses.color_pair(_C_BACKUP_SEL) | curses.A_BOLD
+                        if i == cursor else bg)
                 try:
-                    scr.addstr(row, 0, line[:w - 1], attr)
+                    win.addstr(row, 1, line[:box_w - 2], attr)
                 except curses.error:
                     pass
 
+            # Separator
+            sep_y = box_h - 3
             try:
-                scr.addstr(h - 2, 0, "─" * (w - 1))
-                scr.addstr(h - 1, 0, "enter:restore  ↑↓/jk:move  esc/q:cancel"[:w - 1])
+                win.addch(sep_y, 0,         curses.ACS_LTEE)
+                win.addstr(sep_y, 1,        curses.ACS_HLINE * (box_w - 2), bg)
+                win.addch(sep_y, box_w - 1, curses.ACS_RTEE)
             except curses.error:
                 pass
 
-            scr.refresh()
-            ch = scr.getch()
+            hint = "enter:restore  ↑↓/jk:move  esc/q:cancel"
+            hx = max(2, (box_w - len(hint)) // 2)
+            try:
+                win.addstr(box_h - 2, hx, hint[:box_w - 4],
+                           curses.color_pair(_C_DIALOG_HINT) | curses.A_BOLD)
+            except curses.error:
+                pass
+
+            win.refresh()
+            ch = win.getch()
+            del win
 
             if ch in (curses.KEY_UP, ord("k")):
                 cursor = max(0, cursor - 1)
@@ -469,11 +643,19 @@ class _TUI:
                 cursor = min(len(entries) - 1, cursor + 1)
             elif ch in (curses.KEY_ENTER, 10, 13):
                 e = entries[cursor]
-                label = e.dt.strftime("%Y-%m-%d %H:%M:%S") if e.dt else str(e.path.name)
-                msg = f"Restore from {label}? All current config will be replaced. (y/N)"
-                scr.addstr(h - 2, 0, msg[:w - 1], curses.color_pair(_C_ERR))
-                scr.refresh()
-                conf = scr.getch()
+                label = (e.dt.strftime("%Y-%m-%d %H:%M:%S")
+                         if e.dt else str(e.path.name))
+                conf = self._dialog(
+                    "Restore backup",
+                    [
+                        f"Restore config from:",
+                        f"  {label}",
+                        "",
+                        "The current config will be backed up first.",
+                        "All unsaved TUI changes will be replaced.",
+                    ],
+                    "y = restore    any other key = cancel",
+                )
                 if conf in (ord("y"), ord("Y")):
                     try:
                         _cfg.restore_config(backup_path=e.path)
@@ -482,11 +664,21 @@ class _TUI:
                         self._msg = f"Restored from {label}."
                     except _cfg.ConfigError as ex:
                         self._msg = f"Error: {ex}"
+                self._draw()
                 return
             elif ch in (27, ord("q")):
+                self._draw()
                 return
             elif ch == curses.KEY_RESIZE:
-                scr.clear()
+                h, w = self._h(), self._w()
+                box_h = min(len(entries) + 7, h - 4)
+                box_w = min(74, w - 4)
+                top   = max(1, (h - box_h) // 2)
+                left  = max(2, (w - box_w) // 2)
+                list_rows = box_h - 6
+
+            # Redraw main screen behind the picker on each iteration
+            self._draw()
 
     # ── main loop ──────────────────────────────────────────────────────────
 
@@ -535,7 +727,6 @@ class _TUI:
 
 
 def run() -> int:
-    """Launch the TUI. Returns an exit code."""
     try:
         return curses.wrapper(lambda scr: _TUI(scr).run())
     except curses.error as e:
