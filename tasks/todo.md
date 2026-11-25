@@ -2,7 +2,7 @@
 
 ## In Progress
 
-- [ ] 
+- [ ] Smoke test: verify `architekton-warn` mod fires correctly on Claude Code 2.1.331
 
 ## Backlog
 
@@ -41,10 +41,14 @@
 - [ ] Model ladder -- Stop hook detects tool_use_error, bumps recommended tier
 - [ ] `advisor.py set-model <model>` -- convenience wrapper for editing global config
 
-### Phase 5 -- polish
-- [ ] `install.sh --uninstall` -- clean reversal of all install steps
-- [ ] `advisor.py status` -- human-readable current config + session state
-- [ ] README.md -- install, usage, config reference
+### Phase 5 -- polish (all complete as of Nov 2026)
+- [x] `scripts/uninstall.sh` -- clean reversal of all install steps
+- [x] `advisor.py status` -- human-readable current config + session state
+- [x] README.md -- install, usage, config reference, unexplained terms clarified
+- [x] `architekton-configure` system command for post-install users
+- [x] `scripts/install.sh` / `scripts/uninstall.sh` moved to scripts/ subdirectory
+- [x] Benchmark suite (`tests/benchmarks/`) -- cost/speed/quality vs plain claude
+- [x] `statusline-command.sh` -- version display fixed to read live from package.json
 
 ## Done
 
