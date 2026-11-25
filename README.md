@@ -237,6 +237,16 @@ The fingerprint detector runs at session start to bias model selection before an
 
 If none match, the `default_model` from config applies.
 
+### What is a `.mkproj` file?
+
+A `.mkproj` file is a machine-generated project manifest created by [project-bootstrap](https://github.com/theitguys/project-bootstrap), a companion scaffolding tool. When you run project-bootstrap to initialize a new project, it writes a `.mkproj` file at the root that records the project structure, intended tech stack, and shell script patterns.
+
+arkitekton reads that file at session start to bias model selection. A bash-heavy `.mkproj` -- one that includes patterns like function declarations, conditionals, and loops -- signals infrastructure or scripting work, so arkitekton defaults to Opus without waiting for prompt analysis.
+
+**You do not need project-bootstrap to use arkitekton.** If no `.mkproj` file is present, the fingerprint step is skipped and model selection falls through to the prompt complexity classifier and your configured `default_model`. Everything works; you just lose one early signal.
+
+> **Note:** project-bootstrap is under active development as of November 2026 and has not been publicly released. This section will be updated with a link when it ships.
+
 ---
 
 ## How the classifier works
