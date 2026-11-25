@@ -1,6 +1,6 @@
 # architekton
 
-- You're paying **Opus/Fable prices** for tasks Haiku would handle fine.
+- You're paying **Opus/Fable prices** for tasks Haiku would handle fine. *(Opus and Fable are Anthropic's highest-capability -- and most expensive -- Claude model tiers.)*
 - You want to pay **Opus prices** for *planning*, *reasoning*, and *thinking*, but pay **Haiku prices** for the tactical *doing*. 
 - You want to automatically have the LLM:
     - **Parallel operations** at scale
@@ -37,6 +37,10 @@ Requires Python 3.9+, Claude Code, and `jq`. The installer checks for all three 
 3. Registers a `Stop` hook to record session stats in the cost journal
 4. Installs the `architekton-warn` Claude Code mod plugin
 
+**Claude Code hooks** are shell scripts that Claude Code calls automatically at defined points in a session -- before a prompt is submitted, after the session ends, etc. architekton uses two: one to score each prompt as you type it, and one to record session stats when you close Claude Code.
+
+**Claude Code mods** are JavaScript plugins that Claude Code loads at startup. They have access to session internals (like the active model) that shell hooks don't. architekton's mod (`architekton-warn`) uses this to inject complexity warnings directly into the prompt context.
+
 After install, open a new shell (so `~/bin/claude` takes precedence over the system binary) and start Claude Code as normal. **architekton** operates silently in the background.
 
 For full prerequisites and manual verification steps, see `docs/install.md`.
@@ -57,7 +61,7 @@ The installer places a `architekton-configure` command on your PATH. Run it any 
 architekton-configure
 ```
 
-This opens the interactive TUI config editor. Use the arrow keys to move between fields and type to change a value. When you're done:
+This opens the interactive TUI (Terminal User Interface) config editor. Use the arrow keys to move between fields and type to change a value. When you're done:
 
 - Press `s` to save and exit.
 - Press `q` to exit without saving.
@@ -127,7 +131,7 @@ Dependencies between tasks are respected -- a worker won't start until its depen
 
 ### 4. Cost journal
 
-Every session end records project name, model, and turn count to a JSONL journal at `~/.claude/architekton/cost-journal.jsonl`. The report command shows estimated spend by project:
+Every session end records project name, model, and turn count to a JSONL journal at `~/.claude/architekton/cost-journal.jsonl`. JSONL (JSON Lines) is a plain-text format where each line is a self-contained JSON object -- one line per session, easy to tail, grep, or parse with any tool. The report command shows estimated spend by project:
 
 ```
 $ python -m architekton.advisor report --days 7
