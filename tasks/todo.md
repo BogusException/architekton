@@ -35,11 +35,11 @@
 - [x] `/goal` skill: already at user scope (`~/.claude/skills/goal/`), no install needed
 - [x] `tests/test_orchestrator.py` + `tests/test_runner.py` -- 37 new tests
 
-### Phase 4 -- advanced features
-- [ ] Complexity momentum -- session state file, last N prompt scores
-- [ ] Budget mode with graceful degradation -- daily_usd + warn_pct config keys
-- [ ] Model ladder -- Stop hook detects tool_use_error, bumps recommended tier
+### Phase 4 -- advanced features (priority order)
 - [ ] `advisor.py set-model <model>` -- convenience wrapper for editing global config
+- [ ] Model ladder -- Stop hook detects tool_use_error, bumps recommended tier
+- [ ] Budget mode with graceful degradation -- daily_usd + warn_pct config keys
+- [ ] Complexity momentum -- session state file, last N prompt scores
 
 ### Phase 5 -- polish (all complete as of Nov 2026)
 - [x] `scripts/uninstall.sh` -- clean reversal of all install steps
