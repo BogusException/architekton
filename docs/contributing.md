@@ -5,7 +5,7 @@
 Requires Python 3.9+, `jq`, and Claude Code.
 
 ```bash
-git clone https://github.com/theitguys/architekton.git
+git clone https://github.com/BogusException/architekton.git
 cd architekton
 bash dev-install.sh
 ```

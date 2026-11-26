@@ -11,7 +11,7 @@ For development setup, see [contributing.md](contributing.md).
 ## Install
 
 ```bash
-git clone https://github.com/theitguys/architekton.git
+git clone https://github.com/BogusException/architekton.git
 cd architekton
 bash scripts/install.sh
 ```
