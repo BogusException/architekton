@@ -4,7 +4,8 @@
 #
 # Flags:
 #   --yes / -y                skip all prompts, accept defaults
-#   ARCHITEKTON_NONINTERACTIVE=1   same effect via environment
+#   --force / -f              overwrite an unrecognised wrapper (backs it up first)
+#   ARCHITEKTON_NONINTERACTIVE=1   same as --yes via environment
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,9 +20,11 @@ MARKER="# architekton-wrapper"
 
 # Interactive mode: disabled by env var or --yes/-y flag.
 INTERACTIVE=1
+FORCE=0
 [[ "${ARCHITEKTON_NONINTERACTIVE:-0}" == "1" ]] && INTERACTIVE=0
 for _arg in "$@"; do
-  [[ "$_arg" == "--yes" || "$_arg" == "-y" ]] && INTERACTIVE=0
+  [[ "$_arg" == "--yes"   || "$_arg" == "-y" ]] && INTERACTIVE=0
+  [[ "$_arg" == "--force" || "$_arg" == "-f" ]] && FORCE=1
 done
 
 die() { echo "scripts/install.sh: $*" >&2; exit 1; }
@@ -120,7 +123,13 @@ backup_file() {
 # 1. Refuse before changing anything if the wrapper slot holds something we cannot account for.
 _is_known_wrapper() { grep -qF "$MARKER" "$1" 2>/dev/null || grep -qF "# auto-brain-wrapper" "$1" 2>/dev/null; }
 if [[ -e "$WRAPPER" || -L "$WRAPPER" ]] && ! _is_known_wrapper "$WRAPPER" && [[ ! -L "$WRAPPER" ]]; then
-  die "$WRAPPER exists and is not an architekton wrapper. Move it, or set ARCHITEKTON_BIN_DIR."
+  if [[ "$FORCE" == "1" ]]; then
+    echo "WARNING: $WRAPPER exists and is not a known architekton wrapper. --force: backing it up and replacing it." >&2
+    backup_file "$WRAPPER"
+    rm "$WRAPPER"
+  else
+    die "$WRAPPER exists and is not an architekton wrapper. Run 'python3 scripts/preflight.py --detect' to identify it, then either move it, set ARCHITEKTON_BIN_DIR, or re-run with --force to overwrite it."
+  fi
 fi
 if [[ -s "$SETTINGS" ]]; then
   jq empty "$SETTINGS" 2>/dev/null || die "$SETTINGS is not valid JSON. Fix it first."

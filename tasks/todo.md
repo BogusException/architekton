@@ -58,7 +58,12 @@
 
 ### Laptop migration (Beastie -> new native-Linux laptop)
 
-Notes moved to responses/migration-notes.md (git-ignored) to keep private network details out of the public repo.
+Notes in responses/migration-notes.md (git-ignored).
+
+### Internal planning documents (git-ignored, never public)
+
+- responses/internal/portable-install-plan.md -- original deploy audit and work items
+- responses/internal/skills-manifest.md -- auto-generated skill usage log
 
 ## Done
 

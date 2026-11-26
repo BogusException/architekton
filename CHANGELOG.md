@@ -4,6 +4,8 @@
 
 ### Added
 
+- `scripts/preflight.py --detect` mode: describes whatever is currently installed on a machine without pass/fail judgment -- identifies wrapper type (architekton, auto-brain predecessor, unknown binary, symlink), lists all hook registrations in `settings.json`, shows all installed skills and mod status, reports Claude Code version. Use this before installing on a machine with an unknown prior state.
+- `scripts/install.sh --force` / `-f`: backs up and replaces an unrecognised wrapper instead of refusing. The error message now directs to `preflight.py --detect` to identify what is there first.
 - `scripts/preflight.py` -- cross-platform pre/post-install verification; checks Python version, jq, Claude Code binary, wrapper integrity, all installed modules and hook scripts, hook registration in `settings.json`, skill directory, and mod status
 - `docs/windows.md` -- WSL2 requirements, known issues, and Windows-specific install guidance
 - `docs/contributing.md` -- developer setup: venv, git hooks, contributor settings, test commands
@@ -11,7 +13,7 @@
 
 ### Fixed
 
-- `scripts/install.sh` resolved to its own subdirectory instead of the project root when invoked as `bash scripts/install.sh`; all source file copies failed silently on a fresh clone
+- `scripts/install.sh` resolved to its own subdirectory instead of the project root when invoked as `bash scripts/install.sh`; all source file copies failed on a fresh clone
 
 ## [0.1.0] - 2026-11-26
 
