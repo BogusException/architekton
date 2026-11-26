@@ -50,6 +50,28 @@
 - [x] Benchmark suite (`tests/benchmarks/`) -- cost/speed/quality vs plain claude
 - [x] `statusline-command.sh` -- version display fixed to read live from package.json
 
+### Laptop migration (Beastie -> new native-Linux laptop) -- noted 2026-11-26, deal with later
+
+Beastie = 10.18.254.51. Inventory taken read-only over ssh. Laptop `~/.claude/` currently has no `CLAUDE.md`, no `hooks/`, and a 219-byte `settings.json` with no hooks.
+
+- [ ] Install missing packages (needs sudo): `git python3-venv python3-pip gh`
+- [ ] Set git identity; `gh auth login`
+- [ ] Fix second git remote: `/ssd-pool/...` does not exist on the laptop; switch to `pat@10.18.254.51:/ssd-pool/home-ext/pat/Repositories/architekton.git`
+- [ ] Copy user-scope `~/.claude/CLAUDE.md` from Beastie (17 KB: response format, session archiving, workflow orchestration, release workflow, MemPalace, ASD-STE-100). Back up any laptop copy first. Beastie also has stray `CLAUDE - Copy.md` and `CLAUDE - Copy 10-2026.md` to clean up.
+- [ ] Copy hook scripts: `~/.claude/hooks/auto-import-skill.sh`, `~/.claude/hooks/meta-prompt-inject.sh`
+- [ ] Re-create hook wiring in laptop `settings.json` (Beastie wires 11 hooks):
+  - SessionStart: `~/.local/bin/mempalace-session-context.sh`
+  - Stop: `mempalace hook run --hook stop --harness claude-code`; `~/.claude/skills/goal/goal-continue.sh`; `~/.local/bin/mempalace-stop-mine.sh`; smartmodel `cost-journal.sh`; architekton `cost-journal.sh`
+  - PreCompact: `mempalace hook run --hook precompact --harness claude-code`
+  - UserPromptSubmit: `meta-prompt-inject.sh`; `smartmodel-warn.sh`; `architekton-warn.sh`
+  - PostToolUse [Skill]: `auto-import-skill.sh`
+- [ ] Hook dependencies to bring over: MemPalace CLI + its two `~/.local/bin` scripts; `skills/goal/`; architekton via `scripts/install.sh`
+- [ ] Decide whether the legacy `smartmodel` / `auto_brain` hooks should be retired (architekton replaces them; both run on Beastie today)
+- [ ] Review the other Beastie `settings.json` keys before copying: `env`, `permissions`, `enabledPlugins`, `extraKnownMarketplaces`, `statusLine`, `model`, `effortLevel`. Do not copy credentials.
+- [ ] Skills (~150 dirs in `~/.claude/skills/`), `agents/`, `keybindings.json`
+- [ ] Verify project Stop hooks (`save-response.sh`, `auto-commit.sh`) fire on the laptop; `responses/.last-saved` has not changed since 2026-11-25
+- [ ] Run `bash scripts/install.sh` and put `~/bin` ahead of `~/.local/bin` on PATH, so `--mode architekton` works
+
 ## Done
 
 - [x] Initial scaffold (mkproj)

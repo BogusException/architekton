@@ -45,12 +45,11 @@ Modes explained
 
 Output
 ------
-Each test run writes:
-  results/<run_id>/manifest.json     summary of the whole run
-  results/<run_id>/<test_id>.json    per-test result (timing, exit code, notes)
-  results/<run_id>/<test_id>.log     raw stdout + stderr from the test
-
-The run_id is a timestamp: YYYYMMDD_HHMMSS.
+Each run writes to results/<run_id>/ (run_id = YYYYMMDD_HHMMSS):
+  manifest.json                              summary of the whole run
+  <category>/<test_id>_<YYYYMMDD_HHMMSS>/    one folder per test, stamped when it ran
+    result.json                              timing, exit code, journal entries, notes
+    output.log                               raw stdout + stderr (job tests only)
 """
 
 import argparse
@@ -172,9 +171,8 @@ def _run_classify(test: dict, mode: str, run_dir: Path, dry_run: bool) -> dict:
         print(f"  [dry-run] classify: {prompt[:60]}...")
         return {"status": "dry-run", "expected": expected}
 
-    env = {**os.environ, "ARCHITEKTON_PROMPT": prompt}
     advisor = [
-        sys.executable, "-m", "architekton.advisor", "session-start",
+        sys.executable, "-m", "architekton.advisor", "classify", prompt,
     ]
 
     # For 'plain' mode: classification has no meaning (there is no classifier
@@ -187,12 +185,15 @@ def _run_classify(test: dict, mode: str, run_dir: Path, dry_run: bool) -> dict:
 
     start = time.monotonic()
     result = subprocess.run(
-        advisor, capture_output=True, text=True, env=env, cwd=str(REPO_ROOT),
+        advisor, capture_output=True, text=True, cwd=str(REPO_ROOT),
     )
     elapsed = time.monotonic() - start
 
-    selected = result.stdout.strip()
-    passed = expected.lower() in selected.lower() if expected else True
+    try:
+        selected = json.loads(result.stdout).get("recommended_model", "")
+    except json.JSONDecodeError:
+        selected = ""
+    passed = selected == expected if expected else True
 
     return {
         "status": "pass" if passed else "fail",
@@ -224,10 +225,10 @@ def _build_plain_cmd(test: dict, real_claude: str) -> list[str]:
     ]
 
 
-def _run_job(test: dict, mode: str, run_dir: Path, dry_run: bool, real_claude: str) -> dict:
+def _run_job(test: dict, mode: str, test_dir: Path, dry_run: bool, real_claude: str) -> dict:
     """Execute a job test in the requested mode and return a result dict."""
     workdir = str(REPO_ROOT / test.get("workdir", "."))
-    log_file = run_dir / f"{test['id']}.log"
+    log_file = test_dir / "output.log"
 
     cmds = []
     if mode in ("architekton", "both"):
@@ -306,13 +307,15 @@ def run_all(tests: list[dict], mode: str, run_dir: Path, dry_run: bool, real_cla
         cat = test["category"]
         print(f"\n[{i}/{total}] {tid} ({cat}) -- {test['name']}")
 
-        result_file = run_dir / f"{tid}.json"
+        test_dir = run_dir / cat / f"{tid}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        test_dir.mkdir(parents=True, exist_ok=True)
+        result_file = test_dir / "result.json"
 
         try:
             if cat == "classification":
-                result = _run_classify(test, mode, run_dir, dry_run)
+                result = _run_classify(test, mode, test_dir, dry_run)
             else:
-                result = _run_job(test, mode, run_dir, dry_run, real_claude)
+                result = _run_job(test, mode, test_dir, dry_run, real_claude)
         except KeyboardInterrupt:
             print(f"\n  Interrupted -- skipping {tid}")
             result = {"status": "interrupted"}
@@ -340,7 +343,12 @@ def run_all(tests: list[dict], mode: str, run_dir: Path, dry_run: bool, real_cla
                 print(f"  plain={p['elapsed_s']:.1f}s", end="")
         print()
 
-        manifest["tests"].append({"id": tid, "status": status})
+        manifest["tests"].append({
+            "id": tid,
+            "category": cat,
+            "status": status,
+            "dir": str(test_dir.relative_to(run_dir)),
+        })
 
     manifest["finished_at"] = datetime.now().isoformat()
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
@@ -355,7 +363,10 @@ def summarize(run_dirs: list[Path]):
     all_results: dict[str, list[dict]] = {}  # test_id -> [result_per_run]
 
     for run_dir in run_dirs:
-        for f in sorted(run_dir.glob("*.json")):
+        # Current layout: <run>/<category>/<test>_<stamp>/result.json.
+        # Flat <run>/<test>.json from earlier runs is still read.
+        result_files = sorted(run_dir.glob("*/*/result.json")) + sorted(run_dir.glob("*.json"))
+        for f in result_files:
             if f.name == "manifest.json":
                 continue
             try:

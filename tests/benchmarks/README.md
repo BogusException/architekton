@@ -135,19 +135,23 @@ Run all four and read the result files side-by-side. The numbers will show the c
 
 ## Output files
 
-Each run creates a timestamped directory under `tests/benchmarks/results/`:
+Each run creates a timestamped directory under `tests/benchmarks/results/`, and each test gets its own datetime-stamped folder under its category:
 
 ```
 results/
-  20261124_120000/
-    manifest.json        overall run summary (mode, timestamps, test statuses)
-    C01.json             per-test result (status, timing, model selected)
-    P01.json
-    P01.log              raw stdout+stderr from the test session(s)
+  20261126_005143/                      one run
+    manifest.json                      overall run summary (mode, timestamps, test statuses, test dirs)
+    classification/
+      C01_20261126_005143/
+        result.json                    status, timing, expected vs selected model
+    parallel_jobs/
+      P01_20261126_005210/
+        result.json                    status, timing, exit codes, journal entries
+        output.log                     raw stdout+stderr from the test session(s)
     ...
 ```
 
-`results/` is gitignored -- your run data stays local. Share the `manifest.json` and individual `.json` files with teammates when you want to compare runs across machines.
+`results/` is gitignored -- your run data stays local. Share `manifest.json` and the `result.json` files with teammates when you want to compare runs across machines. Runs from before this layout (flat `<test_id>.json` files) can still be summarized.
 
 ### Summarizing a previous run
 
