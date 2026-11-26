@@ -4,6 +4,12 @@
 
 - [ ] Smoke test: verify `architekton-warn` mod fires correctly on Claude Code 2.1.331
 
+### Pre-release deploy checklist
+- [x] `scripts/preflight.py` -- pre/post-install verification (prerequisites, hooks, skills, mod, import smoke test)
+- [x] `docs/windows.md` -- WSL2 requirements and known issues
+- [ ] `gh auth login` + `git push github main` -- publish to GitHub
+- [ ] Client install on target machine: clone from GitHub, run `scripts/preflight.py --all`
+
 ## Backlog
 
 ### Phase 1 -- core (required for basic functionality)
