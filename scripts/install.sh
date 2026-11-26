@@ -7,7 +7,7 @@
 #   ARCHITEKTON_NONINTERACTIVE=1   same effect via environment
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 BRAIN_HOME="$CLAUDE_DIR/architekton"
 BIN_DIR="${ARCHITEKTON_BIN_DIR:-$HOME/bin}"
@@ -75,8 +75,24 @@ done
 if [[ "$_path_ok" == "1" ]]; then
   echo "  OK:      $BIN_DIR is in PATH"
 else
-  echo "  WARNING: $BIN_DIR is not in PATH"
-  echo "           Add to your shell profile:  export PATH=\"$BIN_DIR:\$PATH\""
+  echo "  WARNING: $BIN_DIR is not in PATH -- the wrapper will not intercept 'claude'."
+  _path_line="export PATH=\"$BIN_DIR:\$PATH\""
+  # Detect shell profile in preference order.
+  _profile=""
+  [[ -f "$HOME/.bashrc"  ]] && _profile="$HOME/.bashrc"
+  [[ -z "$_profile" && -f "$HOME/.zshrc"   ]] && _profile="$HOME/.zshrc"
+  [[ -z "$_profile" && -f "$HOME/.profile" ]] && _profile="$HOME/.profile"
+  if [[ "$INTERACTIVE" == "1" && -n "$_profile" ]]; then
+    _add=$(ask "  Add '$_path_line' to $_profile?" "Y")
+    if [[ "$_add" == "y" ]]; then
+      printf '\n# architekton: put wrapper before system claude\n%s\n' "$_path_line" >> "$_profile"
+      echo "  added -- reload with:  source $_profile"
+    else
+      echo "  Add manually:  echo '$_path_line' >> $_profile && source $_profile"
+    fi
+  else
+    echo "  Add to your shell profile:  $_path_line"
+  fi
 fi
 
 [[ "$_prereq_ok" == "1" ]] || die "Missing prerequisites above. Install them and re-run."
@@ -237,6 +253,10 @@ fi
 
 echo ""
 echo "installed. wrapper: $WRAPPER, hook: $HOOK, journal: $JOURNAL_HOOK"
-if [[ "$(command -v claude || true)" != "$WRAPPER" ]]; then
-  echo "warning: 'claude' on PATH is not $WRAPPER. Put $BIN_DIR before the real claude in PATH." >&2
+_resolved="$(command -v claude 2>/dev/null || true)"
+if [[ -z "$_resolved" ]]; then
+  echo "warning: 'claude' not found on PATH. Reload your shell profile and verify." >&2
+elif [[ "$_resolved" != "$WRAPPER" ]]; then
+  echo "warning: 'claude' resolves to $_resolved, not $WRAPPER." >&2
+  echo "         $BIN_DIR must come before $(dirname "$_resolved") in PATH." >&2
 fi

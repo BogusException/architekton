@@ -1,47 +1,71 @@
 # Install
 
-*This doc covers initial setup and re-setup after a fresh clone.*
+For development setup, see [contributing.md](contributing.md).
 
-## 1. Prerequisites
+## Prerequisites
 
-- Python 3.9+
-- Claude Code installed and on your `PATH` (the real `claude` binary, not the wrapper)
-- `jq` -- used by `scripts/install.sh` to edit `~/.claude/settings.json`
-- `~/bin` on your `PATH` before the system `claude` binary (the installer places the wrapper there)
+- **Python 3.9+** -- `python3 --version` to confirm
+- **Claude Code** -- `npm install -g @anthropic-ai/claude-code`
+- **jq** -- `sudo apt install jq` on Ubuntu/Debian, `brew install jq` on macOS
 
-Verify PATH order: `which claude` should resolve to `~/bin/claude` after install. If it doesn't, add `export PATH="$HOME/bin:$PATH"` to your shell profile.
+## Install
 
-## 2. Setup
+```bash
+git clone https://github.com/theitguys/architekton.git
+cd architekton
+bash scripts/install.sh
+```
 
-1. Clone the repo: `git clone <repo-url> && cd architekton`
-2. Set up the dev environment: `bash dev-install.sh`
-3. Install architekton on your system: `bash scripts/install.sh`
+The installer copies the package to `~/.claude/architekton/`, places the session wrapper at `~/bin/claude`, and registers the warn and cost journal hooks in `~/.claude/settings.json`.
 
-Both scripts are safe to re-run. `dev-install.sh` will announce if a venv already exists and skip recreating it. `scripts/install.sh` will announce "already installed -- reinstalling" and overwrite the previous install.
+If `~/bin` is not already in your PATH, the installer detects your shell profile and offers to add the line automatically. Answer `y` at the prompt, then reload:
 
-## 3. Configure architekton
+```bash
+source ~/.bashrc   # or ~/.zshrc on zsh
+```
 
-The installer places `architekton-configure` on your PATH. Run it once to review the defaults and adjust anything you want:
+Confirm the wrapper is active:
+
+```bash
+which claude   # should show /home/<you>/bin/claude
+```
+
+## Configure
+
+Run the interactive config editor once to review defaults:
 
 ```bash
 architekton-configure
 ```
 
-The editor shows every available setting with a short description. Use arrow keys to navigate, type to edit a value, and press `s` to save. Press `q` to exit without saving.
+Arrow keys to navigate, type to edit, `s` to save, `q` to quit without saving. Settings land in `~/.claude/architekton/config.json`.
 
-Your settings are written to `~/.claude/architekton/config.json`. You can re-run `architekton-configure` any time -- it never overwrites unsaved changes.
-
-## 4. Verifying the install
+## Verify
 
 ```bash
-# Confirm the wrapper is in place
-which claude   # should show ~/bin/claude
-
-# Check current config and detected session model
-bash dev-run.sh
-
-# Run the full test suite
-bash dev-test.sh
+architekton status
 ```
 
-If `dev-run.sh` prints `state: enabled` and a model source, the install succeeded.
+Prints the current config, detected session model, and recent journal entries.
+
+## Update
+
+```bash
+cd architekton
+git pull
+bash scripts/install.sh
+```
+
+The installer is safe to re-run. It backs up any files it replaces.
+
+## Uninstall
+
+```bash
+bash scripts/uninstall.sh
+```
+
+Removes the wrapper, hooks, skill, and installed package. Leaves `config.json` and `cost-journal.jsonl` (your data) intact. To remove those too:
+
+```bash
+bash scripts/uninstall.sh --purge
+```
