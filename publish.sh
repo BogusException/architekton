@@ -50,7 +50,7 @@ PUBLIC_PATHS=(
 # ---------------------------------------------------------------------------
 cd "$REPO_ROOT"
 
-[[ -n "$(git status --porcelain)" ]] && die "Working tree has uncommitted changes. Commit or stash first."
+[[ -n "$(git status --porcelain | grep -v '^?? ')" ]] && die "Working tree has uncommitted changes to tracked files. Commit or stash first."
 
 git remote get-url "$REMOTE" >/dev/null 2>&1 || die "Remote '$REMOTE' not configured. Run: git remote add $REMOTE <url>"
 
