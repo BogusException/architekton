@@ -2,13 +2,13 @@
 
 ## In Progress
 
-- [ ] Smoke test: verify `architekton-warn` mod fires correctly on Claude Code 2.1.331
+- [ ] Smoke test: verify `architekton-warn` mod fires correctly on Claude Code 2.1.332
 
 ### Pre-release deploy checklist
 - [x] `scripts/preflight.py` -- pre/post-install verification (prerequisites, hooks, skills, mod, import smoke test)
 - [x] `docs/windows.md` -- WSL2 requirements and known issues
 - [ ] `gh auth login` + `git push github main` -- publish to GitHub
-- [ ] Client install on target machine: clone from GitHub, run `scripts/preflight.py --all`
+- [x] Client install on target machine: installed on beanie (2026-11-26), `scripts/preflight.py --post` all checks passed on Claude Code 2.1.332
 
 ## Backlog
 
