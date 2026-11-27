@@ -13,6 +13,8 @@
 
 ### Fixed
 
+- `scripts/preflight.py --detect`: non-text binaries (Bun/ELF Claude Code executable) were labeled "binary (unreadable)" instead of "upstream binary" -- wrappers are always shell scripts, so an unreadable file is by definition not ours
+
 - `scripts/install.sh` resolved to its own subdirectory instead of the project root when invoked as `bash scripts/install.sh`; all source file copies failed on a fresh clone
 
 ## [0.1.0] - 2026-11-26

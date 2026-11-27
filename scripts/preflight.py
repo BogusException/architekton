@@ -321,7 +321,7 @@ def phase_detect():
                     head = fh.read(256)
                 label = "wrapper" if (WRAPPER_MARKER in head or AUTO_BRAIN_MARKER in head) else "upstream binary"
             except Exception:
-                label = "binary (unreadable)"
+                label = "upstream binary"
             found.append((p, label))
     if found:
         for p, label in found:
