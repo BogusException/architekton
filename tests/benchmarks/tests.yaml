@@ -1,0 +1,395 @@
+# architekton benchmark test suite
+#
+# This file is the single source of truth for every benchmark test.
+# run_benchmarks.py reads it. The --mode switch (architekton | plain)
+# controls how each test executes; the prompts and parameters never change.
+#
+# Adding a test: append a new entry under the correct category.
+# Removing a test: delete its entry. No other file needs updating.
+#
+# Fields common to all tests:
+#   id          unique test identifier (used in filenames and --test filter)
+#   name        short human label
+#   description what the test measures and why it is interesting
+#   category    which category group this belongs to (must match categories[*].id)
+#   cost_note   rough cost estimate to help users decide what to run
+#
+# Fields for 'classify' mode tests (category: classification):
+#   prompt      the prompt fed to the classifier
+#   expected    model family architekton should select: haiku | sonnet | opus
+#
+# Fields for 'job' mode tests (all other categories):
+#   job         the job description passed to 'architekton run' or plain claude
+#   workdir     working directory for the job (relative to repo root)
+#   architekton_flags   extra flags for 'architekton run' (list of strings)
+#   plain_flags         extra flags for the plain-claude fallback (list of strings)
+
+categories:
+
+  - id: classification
+    name: "Model classification"
+    description: >
+      Verifies architekton selects the right model family for a prompt without
+      running a full session. Fast and free -- no Claude API calls are made.
+      These tests catch regressions in the classifier.
+
+  - id: single_session
+    name: "Single session"
+    description: >
+      Runs the job as a single Claude session. With architekton, the wrapper
+      picks the model; without architekton, the job goes to whichever model
+      is configured globally. Good for seeing whether automatic model selection
+      matches what you would have chosen manually.
+
+  - id: parallel_jobs
+    name: "Parallel jobs"
+    description: >
+      The main feature. architekton decomposes the job, dispatches parallel
+      worker sessions, and collects results. These tests vary worker count and
+      model tier. Without architekton, the same job runs as a single session so
+      you can compare wall-clock time and cost directly.
+
+  - id: thinking_levels
+    name: "Thinking level comparison"
+    description: >
+      Runs the same parallel job four times with different thinking effort levels
+      (low, med, high, ext). Measures whether higher thinking produces better
+      output and at what cost premium. Helps answer whether flattening all models
+      to 'high' thinking is worth the extra spend.
+
+  - id: cost_comparison
+    name: "Cost comparison"
+    description: >
+      Head-to-head: architekton auto config vs plain claude on tasks of different
+      sizes. The cost journal records tokens and model for each session. Run with
+      --mode both to see both sides in a single report.
+
+
+tests:
+
+  # ── Classification ──────────────────────────────────────────────────────────
+
+  - id: C01
+    category: classification
+    name: "Simple file rename task"
+    description: >
+      A routine mechanical task (rename files, no reasoning required). architekton
+      should classify this as haiku-tier work.
+    prompt: "Rename all .txt files in the current directory to use lowercase names."
+    expected: haiku
+    cost_note: "Free (no session started)"
+
+  - id: C02
+    category: classification
+    name: "Code review task"
+    description: >
+      A moderate analysis task. architekton should classify this as sonnet-tier
+      work -- it needs comprehension and judgment but not deep reasoning.
+    prompt: "Review the Python files in this project for style issues and suggest improvements."
+    expected: sonnet
+    cost_note: "Free (no session started)"
+
+  - id: C03
+    category: classification
+    name: "Architectural design task"
+    description: >
+      A complex design task requiring deep reasoning. architekton should classify
+      this as opus-tier work.
+    prompt: >
+      Design a fault-tolerant distributed caching layer for a high-traffic API.
+      Consider consistency models, eviction strategies, and failure modes.
+      Produce a detailed architecture document with trade-off analysis.
+    expected: opus
+    cost_note: "Free (no session started)"
+
+  - id: C04
+    category: classification
+    name: "Data analysis task"
+    description: >
+      Statistical analysis and interpretation. architekton should classify this
+      as sonnet-tier work.
+    prompt: >
+      Analyze the sales data in data.csv. Identify trends, outliers, and seasonal
+      patterns. Summarize your findings in a report with charts.
+    expected: sonnet
+    cost_note: "Free (no session started)"
+
+
+  # ── Single session ───────────────────────────────────────────────────────────
+
+  - id: S01
+    category: single_session
+    name: "List and describe files"
+    description: >
+      A simple inventory task. architekton should use haiku. Good baseline for
+      comparing against parallel jobs that do the same work.
+    job: >
+      List every Python file in tests/benchmarks/sample_jobs/small_project/
+      and write a one-sentence description of each file's purpose.
+      Output the list to stdout.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "< $0.01"
+
+  - id: S02
+    category: single_session
+    name: "Code review of small project"
+    description: >
+      A moderate analysis task across the sample project. architekton should
+      use sonnet. Measures whether auto selection matches the complexity.
+    job: >
+      Review the Python files in tests/benchmarks/sample_jobs/small_project/.
+      For each file, identify: (1) what it does, (2) any bugs or edge cases
+      not handled, (3) one concrete improvement suggestion. Write your findings
+      to tests/benchmarks/results/S02_review.txt.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.01-0.05"
+
+  - id: S03
+    category: single_session
+    name: "Design extension for small project"
+    description: >
+      A design task requiring reasoning about the existing code. architekton
+      should use opus or sonnet. Measures classification at the moderate/hard
+      boundary.
+    job: >
+      Study the architecture of tests/benchmarks/sample_jobs/small_project/.
+      Design a new 'scheduler.py' module that would run the full pipeline
+      (load -> transform -> validate -> report) on a schedule. Include:
+      error handling, retry logic, and logging. Write the design to
+      tests/benchmarks/results/S03_scheduler_design.txt.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.02-0.10"
+
+
+  # ── Parallel jobs ────────────────────────────────────────────────────────────
+
+  - id: P01
+    category: parallel_jobs
+    name: "Parallel file summaries (auto config)"
+    description: >
+      The core parallel test. architekton decomposes 'summarize each file' into
+      one task per file, runs them in parallel with haiku workers, and collects
+      results. Without architekton, the same job runs in a single session.
+      Compare: wall-clock time, model used, and output quality.
+    job: >
+      Review each Python file in tests/benchmarks/sample_jobs/small_project/
+      and write a detailed summary (purpose, key functions, design choices,
+      any risks or missing error handling) for each one. Save each summary
+      to tests/benchmarks/results/P01_{filename}.txt where {filename} is the
+      Python file's basename without the .py extension.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.02-0.08 (architekton) | $0.05-0.15 (plain)"
+
+  - id: P02
+    category: parallel_jobs
+    name: "Parallel file summaries (2 workers, haiku)"
+    description: >
+      Same job as P01 but workers are capped at 2 and explicitly set to haiku.
+      Tests how constrained parallelism affects wall-clock time vs P01's default
+      of 4 workers.
+    job: >
+      Review each Python file in tests/benchmarks/sample_jobs/small_project/
+      and write a detailed summary (purpose, key functions, design choices,
+      any risks or missing error handling) for each one. Save each summary
+      to tests/benchmarks/results/P02_{filename}.txt where {filename} is the
+      Python file's basename without the .py extension.
+    workdir: "."
+    architekton_flags: ["--max-parallel", "2", "--worker-model", "haiku"]
+    plain_flags: []
+    cost_note: "$0.02-0.08"
+
+  - id: P03
+    category: parallel_jobs
+    name: "Parallel file summaries (sonnet workers)"
+    description: >
+      Same job as P01 but workers are upgraded to sonnet. Tests whether
+      higher-quality workers produce measurably better summaries and what the
+      cost premium is.
+    job: >
+      Review each Python file in tests/benchmarks/sample_jobs/small_project/
+      and write a detailed summary (purpose, key functions, design choices,
+      any risks or missing error handling) for each one. Save each summary
+      to tests/benchmarks/results/P03_{filename}.txt where {filename} is the
+      Python file's basename without the .py extension.
+    workdir: "."
+    architekton_flags: ["--worker-model", "sonnet"]
+    plain_flags: []
+    cost_note: "$0.08-0.25"
+
+  - id: P04
+    category: parallel_jobs
+    name: "Parallel file summaries (opus orchestrator, haiku workers)"
+    description: >
+      Explicit orchestrator=opus, workers=haiku. This is the default architekton
+      config. Run it explicitly to verify the defaults and as the reference
+      point for other P-category comparisons.
+    job: >
+      Review each Python file in tests/benchmarks/sample_jobs/small_project/
+      and write a detailed summary (purpose, key functions, design choices,
+      any risks or missing error handling) for each one. Save each summary
+      to tests/benchmarks/results/P04_{filename}.txt where {filename} is the
+      Python file's basename without the .py extension.
+    workdir: "."
+    architekton_flags: ["--orchestrator-model", "opus", "--worker-model", "haiku"]
+    plain_flags: []
+    cost_note: "$0.03-0.10"
+
+  - id: P05
+    category: parallel_jobs
+    name: "Parallel code review (quality-sensitive task)"
+    description: >
+      A more demanding parallel job where output quality matters more. Tests
+      whether architekton's model selection produces acceptable quality, and
+      whether the user would see a real difference by running manually with
+      a heavier model.
+    job: >
+      Perform a thorough code review of each Python file in
+      tests/benchmarks/sample_jobs/small_project/. For each file: identify
+      bugs, edge cases not handled, security concerns, performance issues,
+      and suggest a rewritten version of any function that has a problem.
+      Write findings to tests/benchmarks/results/P05_{filename}_review.txt.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.05-0.20 (architekton) | $0.10-0.40 (plain)"
+
+
+  # ── Thinking levels ──────────────────────────────────────────────────────────
+  #
+  # All four tests use the same job. Run them in sequence to compare output
+  # quality and cost across thinking effort levels. Best run with --mode architekton.
+
+  - id: T01
+    category: thinking_levels
+    name: "Thinking=low (haiku baseline)"
+    description: >
+      The cheapest configuration: haiku workers, low thinking. Use this as the
+      floor. Output quality here is the minimum; cost here is the minimum.
+    job: >
+      Review each Python file in tests/benchmarks/sample_jobs/small_project/
+      and write a detailed summary (purpose, key functions, design choices,
+      any risks or missing error handling) for each one. Save each summary
+      to tests/benchmarks/results/T01_{filename}.txt.
+    workdir: "."
+    architekton_flags: ["--worker-model", "haiku", "--thinking", "low"]
+    plain_flags: []
+    cost_note: "< $0.03"
+
+  - id: T02
+    category: thinking_levels
+    name: "Thinking=med (sonnet default)"
+    description: >
+      Medium thinking with sonnet workers. The architekton default for
+      sonnet-tier tasks. Good quality at moderate cost.
+    job: >
+      Review each Python file in tests/benchmarks/sample_jobs/small_project/
+      and write a detailed summary (purpose, key functions, design choices,
+      any risks or missing error handling) for each one. Save each summary
+      to tests/benchmarks/results/T02_{filename}.txt.
+    workdir: "."
+    architekton_flags: ["--worker-model", "sonnet", "--thinking", "med"]
+    plain_flags: []
+    cost_note: "$0.05-0.15"
+
+  - id: T03
+    category: thinking_levels
+    name: "Thinking=high (opus default)"
+    description: >
+      High thinking. This is the opus default. Run with haiku workers to test
+      whether bumping thinking to 'high' on cheap models produces opus-quality
+      output at haiku prices -- or just burns tokens without benefit.
+    job: >
+      Review each Python file in tests/benchmarks/sample_jobs/small_project/
+      and write a detailed summary (purpose, key functions, design choices,
+      any risks or missing error handling) for each one. Save each summary
+      to tests/benchmarks/results/T03_{filename}.txt.
+    workdir: "."
+    architekton_flags: ["--worker-model", "haiku", "--thinking", "high"]
+    plain_flags: []
+    cost_note: "$0.04-0.12"
+
+  - id: T04
+    category: thinking_levels
+    name: "Thinking=ext (maximum effort)"
+    description: >
+      Extended thinking. Maximum reasoning budget. Use sparingly -- this is
+      expensive. Included to show the ceiling and help users decide whether
+      ext thinking pays off on routine tasks.
+    job: >
+      Review each Python file in tests/benchmarks/sample_jobs/small_project/
+      and write a detailed summary (purpose, key functions, design choices,
+      any risks or missing error handling) for each one. Save each summary
+      to tests/benchmarks/results/T04_{filename}.txt.
+    workdir: "."
+    architekton_flags: ["--worker-model", "sonnet", "--thinking", "ext"]
+    plain_flags: []
+    cost_note: "$0.15-0.50 (use sparingly)"
+
+
+  # ── Cost comparison ──────────────────────────────────────────────────────────
+  #
+  # These tests are designed to run with --mode both. The runner executes each
+  # test twice (architekton, then plain) and writes a side-by-side report.
+
+  - id: X01
+    category: cost_comparison
+    name: "Small task: with vs without architekton"
+    description: >
+      A simple task that architekton should handle with haiku. Without
+      architekton, it runs as a single session on whatever model is configured.
+      Directly shows cost savings for routine work.
+    job: >
+      List every function defined in each Python file in
+      tests/benchmarks/sample_jobs/small_project/ and write a one-line
+      description of what each function does. Output to
+      tests/benchmarks/results/X01_functions.txt.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.01-0.03 (architekton) | $0.03-0.10 (plain)"
+
+  - id: X02
+    category: cost_comparison
+    name: "Medium task: with vs without architekton"
+    description: >
+      A moderate code review task. architekton should select sonnet. Without
+      architekton, the job runs on the globally configured model in one session.
+      Shows cost/quality trade-off at the mid tier.
+    job: >
+      Perform a code review of all Python files in
+      tests/benchmarks/sample_jobs/small_project/. For each file write a
+      short review covering: what it does well, what could break, and one
+      improvement suggestion. Write all reviews to
+      tests/benchmarks/results/X02_code_review.txt.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.02-0.08 (architekton) | $0.05-0.20 (plain)"
+
+  - id: X03
+    category: cost_comparison
+    name: "Large parallel task: with vs without architekton"
+    description: >
+      The most expensive test -- included to show the value of parallelism on
+      larger jobs. architekton splits the work across workers; without
+      architekton, everything serializes into one long session. Wall-clock
+      time difference should be dramatic.
+    job: >
+      For each Python file in tests/benchmarks/sample_jobs/small_project/:
+      (1) write a full docstring for every function that lacks one,
+      (2) add type annotations to every function signature,
+      (3) write a unit test file for it.
+      Save results to tests/benchmarks/results/X03_{filename}_annotated.py
+      and tests/benchmarks/results/X03_test_{filename}.py.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.10-0.40 (architekton) | $0.25-1.00 (plain)"

@@ -1,0 +1,58 @@
+{
+  "enabled": true,
+  "mode": "auto",
+  "default_model": "sonnet",
+  "backup_keep": 10,
+  "models": {
+    "haiku": "haiku",
+    "sonnet": "sonnet",
+    "opus": "opus"
+  },
+  "thresholds": {
+    "light": 0.3,
+    "heavy": 0.65
+  },
+  "pricing": {
+    "opus": {
+      "input_per_1m": 15.0,
+      "output_per_1m": 75.0
+    },
+    "sonnet": {
+      "input_per_1m": 3.0,
+      "output_per_1m": 15.0
+    },
+    "haiku": {
+      "input_per_1m": 0.8,
+      "output_per_1m": 4.0
+    }
+  },
+  "job": {
+    "orchestrator_model": "opus",
+    "worker_model": "haiku",
+    "max_parallel": 4,
+    "worker_timeout": 300,
+    "worker_max_turns": 20,
+    "orchestrator_preamble": "",
+    "thinking_map": {
+      "haiku": "low",
+      "sonnet": "med",
+      "opus": "high"
+    },
+    "worker_thinking": ""
+  },
+  "tui": {
+    "color": true,
+    "status_waiting": "dim",
+    "status_running": "cyan",
+    "status_complete": "green",
+    "status_error": "red",
+    "status_skipped": "yellow",
+    "model_haiku": "green",
+    "model_sonnet": "cyan",
+    "model_opus": "red",
+    "model_other": "",
+    "separator": "dim",
+    "row_bg": "",
+    "show_orchestrator": true
+  }
+}

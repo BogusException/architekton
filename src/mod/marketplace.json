@@ -1,0 +1,11 @@
+{
+  "name": "architekton",
+  "owner": { "name": "architekton" },
+  "plugins": [
+    {
+      "name": "architekton-warn",
+      "description": "Warns when prompt complexity doesn't match the current model tier.",
+      "source": "./architekton-warn"
+    }
+  ]
+}
