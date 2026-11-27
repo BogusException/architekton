@@ -55,7 +55,34 @@ cd "$REPO_ROOT"
 git remote get-url "$REMOTE" >/dev/null 2>&1 || die "Remote '$REMOTE' not configured. Run: git remote add $REMOTE <url>"
 
 # ---------------------------------------------------------------------------
-# 1. Content scan -- abort if any blocklist pattern fires in the public files
+# 1. Verify public paths exist in git
+# ---------------------------------------------------------------------------
+echo "=== Verifying public file set ==="
+missing=0
+for path in "${PUBLIC_PATHS[@]}"; do
+    if ! git ls-files --error-unmatch "$path" >/dev/null 2>&1 && \
+       ! git ls-tree -d HEAD "$path" >/dev/null 2>&1; then
+        echo "  MISSING  $path (not tracked by git)" >&2
+        missing=1
+    else
+        echo "  OK       $path"
+    fi
+done
+[[ "$missing" == "1" ]] && die "One or more public paths are missing from git. Check manifest."
+
+# ---------------------------------------------------------------------------
+# 2. Assemble orphan branch using git archive (tracked files only)
+# ---------------------------------------------------------------------------
+echo "=== Assembling public branch ==="
+WORKDIR="$(mktemp -d)"
+trap 'rm -rf "$WORKDIR"' EXIT
+
+# git archive guarantees only committed, tracked files land in the publish --
+# no git-ignored files (benchmark results, .venv, etc.) can slip through.
+git archive HEAD -- "${PUBLIC_PATHS[@]}" | tar -x -C "$WORKDIR"
+
+# ---------------------------------------------------------------------------
+# 3. Content scan -- run on the assembled snapshot, not the live tree
 # ---------------------------------------------------------------------------
 echo "=== Content scan ==="
 BLOCKLIST="$REPO_ROOT/.publish-blocklist"
@@ -63,18 +90,14 @@ scan_failed=0
 if [[ -f "$BLOCKLIST" ]]; then
     while IFS= read -r pattern; do
         [[ -z "$pattern" || "$pattern" == \#* ]] && continue
-        for path in "${PUBLIC_PATHS[@]}"; do
-            full="$REPO_ROOT/$path"
-            [[ -e "$full" ]] || continue
-            hits=$(grep -rIlE "$pattern" "$full" 2>/dev/null || true)
-            if [[ -n "$hits" ]]; then
-                echo "  BLOCKED  pattern '$pattern' found in:" >&2
-                while IFS= read -r hit; do
-                    echo "           $hit" >&2
-                done <<< "$hits"
-                scan_failed=1
-            fi
-        done
+        hits=$(grep -rIlE "$pattern" "$WORKDIR" 2>/dev/null || true)
+        if [[ -n "$hits" ]]; then
+            echo "  BLOCKED  pattern '$pattern' found in:" >&2
+            while IFS= read -r hit; do
+                echo "           ${hit#$WORKDIR/}" >&2
+            done <<< "$hits"
+            scan_failed=1
+        fi
     done < "$BLOCKLIST"
 else
     echo "  WARNING: .publish-blocklist not found -- skipping content scan" >&2
@@ -86,36 +109,6 @@ if [[ "$scan_failed" == "1" ]]; then
     exit 1
 fi
 echo "  OK       content scan passed"
-
-# ---------------------------------------------------------------------------
-# 2. Verify public paths exist
-# ---------------------------------------------------------------------------
-echo "=== Verifying public file set ==="
-missing=0
-for path in "${PUBLIC_PATHS[@]}"; do
-    if [[ ! -e "$REPO_ROOT/$path" ]]; then
-        echo "  MISSING  $path" >&2
-        missing=1
-    else
-        echo "  OK       $path"
-    fi
-done
-[[ "$missing" == "1" ]] && die "One or more public paths are missing. Check manifest."
-
-# ---------------------------------------------------------------------------
-# 3. Assemble orphan branch in a temp directory
-# ---------------------------------------------------------------------------
-echo "=== Assembling public branch ==="
-WORKDIR="$(mktemp -d)"
-trap 'rm -rf "$WORKDIR"' EXIT
-
-for path in "${PUBLIC_PATHS[@]}"; do
-    src="$REPO_ROOT/$path"
-    [[ -e "$src" ]] || continue
-    dest="$WORKDIR/$path"
-    mkdir -p "$(dirname "$dest")"
-    cp -r "$src" "$dest"
-done
 
 # ---------------------------------------------------------------------------
 # 4. Build the orphan branch
