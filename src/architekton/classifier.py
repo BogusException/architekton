@@ -41,13 +41,17 @@ def count_hits(regexes, text):
 def score(text):
     tokens = estimate_tokens(text)
     total = BASE_SCORE
+    head = text[:SCAN_CHARS]
+    heavy_hits = count_hits(HEAVY_REGEXES, head)
+    light_hits = count_hits(LIGHT_REGEXES, head)
     if tokens > LONG_PROMPT_TOKENS:
         total += min(LENGTH_WEIGHT * math.log2(tokens / LONG_PROMPT_TOKENS), MAX_LENGTH_BONUS)
-    elif tokens < SHORT_PROMPT_TOKENS:
+    elif tokens < SHORT_PROMPT_TOKENS and heavy_hits == 0:
+        # Short-prompt penalty only applies when there are no heavy signals.
+        # A concise architecture question is still opus work.
         total -= LENGTH_WEIGHT
-    head = text[:SCAN_CHARS]
-    total += SIGNAL_WEIGHT * count_hits(HEAVY_REGEXES, head)
-    total -= SIGNAL_WEIGHT * count_hits(LIGHT_REGEXES, head)
+    total += SIGNAL_WEIGHT * heavy_hits
+    total -= SIGNAL_WEIGHT * light_hits
     return round(min(max(total, 0.0), 1.0), 2)
 
 
