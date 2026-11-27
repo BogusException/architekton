@@ -61,6 +61,9 @@ desktop.ini
 # mkproj project identity (per-project, not for version control)
 .mkproj
 
+# Publish tooling (content-sensitive, not for version control)
+.publish-blocklist
+
 # Private keys and credential containers
 *.pem
 *.key
