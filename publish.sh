@@ -131,13 +131,14 @@ cp -r "$WORKDIR"/. "$TMPGIT/"
 git -C "$TMPGIT" add -A
 git -C "$TMPGIT" commit -q -m "Release $VERSION"
 
-echo "  built orphan branch '$BRANCH' ($(git -C "$TMPGIT" diff-tree --no-commit-id -r --name-only HEAD | wc -l | tr -d ' ') files)"
+FILE_COUNT=$(git -C "$TMPGIT" ls-tree -r --name-only HEAD | wc -l | tr -d ' ')
+echo "  built orphan branch '$BRANCH' ($FILE_COUNT files)"
 
 if [[ "$DRY_RUN" == "1" ]]; then
     echo ""
     echo "Dry run complete. No push performed."
     echo "Files that would be published:"
-    git -C "$TMPGIT" diff-tree --no-commit-id -r --name-only HEAD | sed 's/^/  /'
+    git -C "$TMPGIT" ls-tree -r --name-only HEAD | sed 's/^/  /'
     exit 0
 fi
 
