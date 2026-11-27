@@ -85,7 +85,9 @@ else
   [[ -f "$HOME/.bashrc"  ]] && _profile="$HOME/.bashrc"
   [[ -z "$_profile" && -f "$HOME/.zshrc"   ]] && _profile="$HOME/.zshrc"
   [[ -z "$_profile" && -f "$HOME/.profile" ]] && _profile="$HOME/.profile"
-  if [[ "$INTERACTIVE" == "1" && -n "$_profile" ]]; then
+  if grep -qF "$_path_line" "$_profile" 2>/dev/null; then
+    echo "  already in $_profile -- reload shell or run: source $_profile"
+  elif [[ "$INTERACTIVE" == "1" && -n "$_profile" ]]; then
     _add=$(ask "  Add '$_path_line' to $_profile?" "Y")
     if [[ "$_add" == "y" ]]; then
       printf '\n# architekton: put wrapper before system claude\n%s\n' "$_path_line" >> "$_profile"
