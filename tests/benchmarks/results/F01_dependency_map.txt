@@ -1,0 +1,229 @@
+F01 DEPENDENCY MAP: tests/benchmarks/sample_jobs/small_project/
+Date: 2026-11-28
+Method: manual read of all 5 files, cross-checked with an ast-based script
+(import extraction, name-usage check) and a live import of every module on
+Python 3.14.4.
+
+======================================================================
+1. FILES IN SCOPE
+======================================================================
+
+  File             Lines  Role
+  ---------------  -----  ------------------------------------------
+  cli.py              65  Entry point. Parses args, runs the pipeline.
+  data_loader.py      45  Reads CSV/JSON files into list[dict].
+  transformer.py      55  Named record transformations (registry).
+  validator.py        93  Named validation rules, report dataclasses.
+  reporter.py         59  Renders a ValidationReport as text or JSON.
+
+There is no __init__.py. All internal imports are flat (`from validator
+import ...`), so the directory must be on sys.path (script directory or
+cwd) for them to resolve.
+
+======================================================================
+2. IMPORTS PER FILE
+======================================================================
+
+cli.py
+  stdlib:    argparse, sys
+  internal:  data_loader.load
+             transformer.apply
+             validator.validate
+             reporter.write
+
+data_loader.py
+  stdlib:    csv, json, pathlib.Path
+  internal:  (none)
+
+transformer.py
+  stdlib:    typing.Callable
+  internal:  (none)
+
+validator.py
+  stdlib:    dataclasses.dataclass, dataclasses.field, typing.Callable
+  internal:  (none)
+
+reporter.py
+  stdlib:    json, sys, pathlib.Path
+  internal:  validator.ValidationReport
+
+======================================================================
+3. INTERNAL DEPENDENCY GRAPH
+======================================================================
+
+Edge list (A -> B means A imports B):
+
+  cli.py     -> data_loader.py   (load)
+  cli.py     -> transformer.py   (apply)
+  cli.py     -> validator.py     (validate)
+  cli.py     -> reporter.py      (write)
+  reporter.py -> validator.py    (ValidationReport)
+
+Five edges in total.
+
+ASCII diagram (arrows point from importer to imported module):
+
+                        +-----------+
+                        |  cli.py   |   entry point
+                        +-----------+
+                         |  |  |  |
+          +--------------+  |  |  +----------------+
+          |                 |  |                   |
+          v                 |  v                   v
+   +--------------+         | +--------------+  +-------------+
+   | data_loader  |         | | transformer  |  |  reporter   |
+   |     .py      |         | |     .py      |  |     .py     |
+   +--------------+         | +--------------+  +-------------+
+                            |                          |
+                            v                          |
+                     +--------------+                  |
+                     |  validator   |<-----------------+
+                     |     .py      |   ValidationReport
+                     +--------------+
+
+  Depth by longest import chain:
+    cli -> reporter -> validator   (depth 3)
+    cli -> data_loader             (depth 2)
+    cli -> transformer             (depth 2)
+    cli -> validator               (depth 2)
+
+Fan-in / fan-out (internal edges only):
+
+  Module          Imports (out)   Imported by (in)
+  --------------  -------------   ----------------
+  cli.py                4          0
+  data_loader.py        0          1  (cli)
+  transformer.py        0          1  (cli)
+  validator.py          0          2  (cli, reporter)
+  reporter.py           1          1  (cli)
+
+Leaf modules (no internal imports): data_loader, transformer, validator.
+Root module (nothing imports it): cli.
+
+======================================================================
+4. STANDARD LIBRARY USAGE
+======================================================================
+
+  Stdlib module   Used by
+  --------------  ------------------------------------
+  argparse        cli
+  sys             cli, reporter
+  csv             data_loader
+  json            data_loader, reporter
+  pathlib.Path    data_loader, reporter
+  typing.Callable transformer, validator
+  dataclasses     validator
+
+No third-party packages are imported anywhere. This matches the project
+rule of stdlib only.
+
+======================================================================
+5. FINDINGS
+======================================================================
+
+5.1 Circular imports: NONE
+  The internal graph is a DAG. validator.py, the only module imported by
+  two others, imports nothing internal, so no cycle can close through it.
+  Confirmed at runtime: all five modules import cleanly in isolation.
+
+5.2 Missing imports: NONE
+  Every name used in each file is either defined locally, a builtin, or
+  imported. Every internal module named in an import statement exists in
+  the directory. Every imported symbol exists in its source module:
+    data_loader.load            defined at data_loader.py:38
+    transformer.apply           defined at transformer.py:47
+    validator.validate          defined at validator.py:67
+    reporter.write              defined at reporter.py:53
+    validator.ValidationReport  defined at validator.py:56
+
+5.3 Unused imports: NONE
+  Checked with an ast walk (imported name vs. any ast.Name use).
+  Two imports are used only indirectly and are worth knowing about:
+    reporter.py:10  ValidationReport is used only in type annotations
+                    (lines 13, 31, 35, 53). No runtime use. See 6.1.
+    validator.py:7  `field` is used with default_factory (lines 52, 60).
+
+5.4 Syntax needing a minimum Python version
+  - `str | None` and `list[str] | None` (validator.py, reporter.py) need
+    Python 3.10+ at runtime because the annotations are not deferred.
+  - `RuleFunc = Callable[[dict], str | None]` (validator.py:11) is
+    evaluated at import time, so 3.10+ is required even without
+    annotations being evaluated.
+  - `list[dict]`, `dict[str, ...]` need 3.9+.
+  No `from __future__ import annotations` is present. Tested on 3.14.4.
+
+======================================================================
+6. OBSERVATIONS (NOT DEFECTS)
+======================================================================
+
+6.1 reporter -> validator is a type-only dependency.
+  reporter.py never calls anything from validator. It reads attributes
+  (.ok, .total, .passed, .failed, .results, .record_id, .failures) by
+  duck typing. The import could move under `if TYPE_CHECKING:` with
+  `from __future__ import annotations`, which would remove the only
+  runtime edge between non-entry modules and leave reporter standalone.
+  This is optional. The cost of the current form is one extra import
+  at startup.
+
+6.2 cli.py depends on ValidationReport without importing it.
+  cli.py uses `report.ok` (line 58) on the object returned by
+  validate(). This is an implicit contract with validator.py. It works
+  because cli only needs the attribute, but a rename of `ok` would break
+  cli with no import error.
+
+6.3 Registration happens at import time.
+  transformer.py (@register) and validator.py (@rule) fill module-level
+  dicts (_REGISTRY, _RULES) as a side effect of being imported. cli.py
+  only gets the built-in steps and rules because it imports those
+  modules. A new transformation or rule must live in its own module AND
+  be imported somewhere, or it will not register. Nothing in the
+  directory does this today.
+
+6.4 DEFAULT_STEPS and DEFAULT_RULES in cli.py duplicate registry keys.
+  The strings "strip_whitespace", "normalize_value", "add_flag",
+  "has_id", "value_non_negative", "name_not_empty" are hard-coded in
+  cli.py and also appear as decorator names in transformer.py and
+  validator.py. This is a string-level dependency with no import and no
+  static check. Renaming a registered name breaks the CLI default at run
+  time (ValueError from apply() or validate()), not at import time.
+
+6.5 Flat imports tie the code to its directory.
+  `from data_loader import load` works when run as
+  `python cli.py` from this directory, or with the directory on
+  sys.path. It fails with ModuleNotFoundError if the directory is
+  treated as a package or run from elsewhere without sys.path setup.
+  Benchmark test files under tests/benchmarks/results/ import these
+  modules, so they must insert this path themselves.
+
+======================================================================
+7. SUMMARY
+======================================================================
+
+small_project is a four-stage pipeline: load, transform, validate,
+report. cli.py is the single orchestrator and the only module that
+touches all the others. It imports four internal modules and two
+stdlib modules.
+
+The structure is a shallow, acyclic tree with one extra edge:
+reporter.py imports validator.py for the ValidationReport type. That
+edge is the only dependency between two non-entry modules. data_loader.py
+and transformer.py are fully independent leaves. validator.py is a leaf
+too, but it is the most depended-on module (two importers) because it
+owns the data shapes (RecordResult, ValidationReport) that reporter and
+cli consume.
+
+The scan found no circular imports, no missing imports, and no unused
+imports. All third-party dependencies: none. The longest import chain
+is three modules (cli -> reporter -> validator).
+
+The real coupling is not in the import graph. It is in the shared
+string names for transformation steps and rules (6.4), the
+import-time registration pattern (6.3), and the attribute-level
+contract on ValidationReport (6.2). Those three do not show up in an
+import scan and would break at run time rather than at import time.
+
+Recommended changes, in priority order, if any are wanted:
+  1. None required. The import structure is clean.
+  2. Optional: make the reporter -> validator import type-only (6.1).
+  3. Optional: derive DEFAULT_STEPS and DEFAULT_RULES from the
+     registries instead of repeating the names (6.4).
