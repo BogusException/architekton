@@ -1,0 +1,85 @@
+T02 summary: cli.py (tests/benchmarks/sample_jobs/small_project/cli.py)
+
+Source read in full: 65 lines. No source files were modified.
+
+PURPOSE
+
+cli.py is the command-line entry point for the small_project pipeline. It takes a data file path, an optional list of transformation steps, an optional list of validation rules, an output format, and an optional output file. It runs four stages in order: load (data_loader), apply (transformer), validate (validator), and write (reporter). The process exit code reports the outcome.
+
+KEY FUNCTIONS
+
+main()
+Signature: main() -> None. Defined at line 20. Takes no arguments. Reads sys.argv through argparse.
+Behavior: builds the argument parser (lines 21-51), then runs the pipeline inside one try block (lines 53-61):
+  line 54: records = load(args.file)
+  line 55: records = apply(records, args.steps)
+  line 56: report = validate(records, args.rules)
+  line 57: write(report, fmt=args.format, dest=args.output)
+  line 58: sys.exit(0 if report.ok else 1)
+  lines 59-61: on ValueError or FileNotFoundError, prints "error: <message>" to stderr and calls sys.exit(2).
+Return value: none. The function always ends in sys.exit, either from line 58, from line 61, or from argparse itself.
+Exit codes produced by main():
+  0: the report is ok (report.ok is truthy).
+  1: the report is not ok (report.ok is falsy).
+  2: a ValueError or FileNotFoundError was raised in any stage, or argparse rejected the arguments (argparse exits with 2 on usage errors, including a missing file argument or an invalid --format value).
+  Any other uncaught exception: Python exits with 1 and prints a traceback.
+
+Module-level constants (not functions):
+  DEFAULT_STEPS (line 16): ["strip_whitespace", "normalize_value", "add_flag"]
+  DEFAULT_RULES (line 17): ["has_id", "value_non_negative", "name_not_empty"]
+
+Argument parser (inside main, lines 21-51):
+  file (positional, line 24): path to a .csv or .json file. Required.
+  --steps (lines 25-31): nargs="*", default DEFAULT_STEPS, metavar STEP.
+  --rules (lines 32-38): nargs="*", default DEFAULT_RULES, metavar RULE.
+  --format (lines 39-44): choices text or json, default text.
+  --output (lines 45-50): metavar FILE, default None. When None, the report goes to stdout (as implemented in reporter.py, not read here).
+
+Guard (lines 64-65): main() runs only when the file is executed directly.
+
+DESIGN CHOICES
+
+cli.py is a thin orchestrator. It holds no transformation, validation, or formatting logic. Each stage is a single function call from a sibling module, so the file is easy to read and test at the module level.
+
+Defaults for steps and rules are module constants. Users can replace them with --steps and --rules. There is no way to add a step to the default list. The user must list all steps.
+
+All four stages share one try block. This keeps the error handling short, but it means errors from every stage get the same treatment (see risks below).
+
+Errors go to stderr with an "error:" prefix. Results go to stdout or --output.
+
+Exit codes are simple: 0 for pass, 1 for fail, 2 for error. This is useful for shell scripts only if the exit codes stay distinct, which they do not (see risk 3).
+
+main() calls sys.exit directly. It returns nothing. This makes the function hard to call from a test without catching SystemExit.
+
+RISKS AND MISSING ERROR HANDLING
+
+Risks are listed from most to least likely to cause a wrong result in real use.
+
+1. main, lines 27-28 and 34-35: nargs="*" with no values gives an empty list. A user who types "--rules" with no names gets args.rules = [] and no error. Validation then runs zero rules. Whether that exits 0 depends on validator.py, which this summary does not cover. An empty --steps list (line 27-28) silently skips all transformation. A CI job with an empty variable expansion (for example --rules $RULES with RULES unset) can pass with no checks run. No guard exists in main to reject an empty list.
+
+2. main, line 59: the except clause catches only ValueError and FileNotFoundError. These other exceptions escape as tracebacks with exit code 1:
+  - PermissionError and IsADirectoryError (both OSError subclasses) from load at line 54.
+  - OSError from write at line 57, for example when --output points to a path that cannot be created.
+  - csv.Error from the CSV path inside load (line 54), if data_loader.py does not wrap it.
+  - KeyError, TypeError, or AttributeError from any stage (lines 55-57).
+  The traceback is not formatted the way the other errors are, and the exit code (1) is the same code that means "validation failed."
+
+3. main, lines 58 and 61: exit code 1 means validation failed, and Python also uses exit code 1 for uncaught exceptions (risk 2). Exit code 2 means input or usage error, and it also covers any ValueError raised by validate (line 56) or write (line 57). A bug inside validate that raises ValueError is reported as "error:" with exit 2, which looks like a bad input file. A script that checks only for exit 1 will treat a crash as a failed validation.
+
+4. main, line 55: the step names in args.steps are not checked against the set of steps transformer.py supports. An unknown or misspelled step name is passed straight to apply(). Whether that raises ValueError (caught, exit 2) or KeyError (uncaught, traceback) depends on transformer.py, which is not covered here. The same applies to rule names at line 56 and validator.py.
+
+5. main, line 58: report.ok is read without a check. If validate() returns an object with no ok attribute, the program raises AttributeError, which is not caught. The coupling between validator.py and cli.py is implicit and is not tested in this file.
+
+6. main, lines 54 and 24: the help text says the file must be .csv or .json, but cli.py does not check the extension or the file's existence before calling load(). Those checks are left to data_loader.py. An unsupported extension raises whatever data_loader.py raises. This summary cannot confirm which exception that is.
+
+7. main, lines 16-17 and 28, 35: argparse returns the default object itself when the flag is absent, so args.steps and args.rules are the same list objects as DEFAULT_STEPS and DEFAULT_RULES. If apply() or validate() mutates its list argument, the module-level defaults change for later calls in the same process. The risk is low for one CLI run, but it matters if main() is called repeatedly from a test harness.
+
+8. main, lines 53-58 and empty input: cli.py does not check for zero records after load() at line 54. An empty input file reaches apply() and validate() with an empty list. The exit code for an empty file depends on validator.py (not covered here). An empty JSON file raises ValueError from the JSON parser (caught, exit 2). An empty CSV file's behavior depends on data_loader.py.
+
+9. Lines 10-13 (module level): the imports are bare sibling names (data_loader, transformer, validator, reporter). They work when cli.py runs as a script from its own directory, because Python puts the script directory on sys.path. Running from another directory with python -m, or importing cli as a package member, raises ModuleNotFoundError at import time, before main() runs.
+
+10. main, line 57, --output: the report is written only after all stages finish. If write() fails partway through, a partial file may be left at the --output path. Whether this happens depends on reporter.py (not covered here). cli.py does not remove or check the file on failure.
+
+11. main, line 20 and lines 64-65: main() returns nothing and calls sys.exit. Tests must catch SystemExit to read the exit code. This is a design choice, not a bug, but it makes in-process tests harder to write.
+
+Summary of missing error handling in cli.py: no existence or extension check for the input file, no validation of step or rule names, no check for an empty list passed to --steps or --rules, no check for zero records after load, no catch for OSError or unexpected exceptions, and no separation between usage, input, and validation-crash exit codes.
