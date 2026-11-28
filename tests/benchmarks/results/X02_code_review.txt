@@ -16,13 +16,13 @@ Improvement:
 === data_loader.py ===
 Does well:
 - load_csv checks the header against REQUIRED_COLUMNS (lines 20-23) before it reads any row, and the error lists the missing names sorted.
-- load_csv opens with newline="" (line 16), so quoted fields with embedded newlines parse correctly.
+- load_csv opens with newline="" (line 18), so quoted fields with embedded newlines parse correctly.
 - load (lines 38-45) keeps the format choice in one place and raises ValueError for unknown suffixes.
 Could break:
-- load_csv, line 16: open() has no encoding. A UTF-8 file with a BOM makes the first header "﻿id", so the file is rejected as missing "id" although it looks correct. A non-UTF-8 locale can also raise UnicodeDecodeError, which cli.py does not catch (UnicodeDecodeError is a ValueError subclass, so it is caught, but the message is unhelpful).
-- load_json, lines 34-35: only the container type is checked. `[1, 2]` or `[null]` passes, and later stages crash with AttributeError in strip_whitespace (transformer.py line 37) or in validate. The CSV path enforces columns, the JSON path does not.
-- load, line 40: `p.suffix` is case-sensitive, so DATA.CSV is rejected as unsupported.
-- load_csv, line 25: a short row gives None for missing columns, and a long row stores extras under the key None. Neither is detected.
+- load_csv, line 18: open() has no encoding. A UTF-8 file with a BOM makes the first header start with an invisible BOM character, so the file is rejected as missing "id" although it looks correct.
+- load_json, lines 33-34: only the container type is checked. `[1, 2]` or `[null]` passes, and later stages crash with AttributeError in strip_whitespace (transformer.py line 36) or in validate. The CSV path enforces columns, the JSON path does not.
+- load, lines 41-43: `p.suffix` is case-sensitive, so DATA.CSV is rejected as unsupported.
+- load_csv, lines 24-25: a short row gives None for missing columns, and a long row stores extras under the key None. Neither is detected.
 Improvement:
 - In load_json, require every item to be a dict and apply the same REQUIRED_COLUMNS check, preferably through one shared helper used by both loaders.
 
@@ -45,9 +45,9 @@ Does well:
 - Every transform copies the record (dict(record) or a new dict comprehension), so input records are never mutated.
 - apply checks all step names before it touches any data (lines 49-51), so a typo fails fast and not halfway through.
 Could break:
-- add_flag, line 44: float(out.get("value", 0)) has no try/except, unlike normalize_value. Without normalize_value first, value "" or "abc" raises ValueError, and value None (JSON null) raises TypeError. TypeError is not caught by cli.py, so the user sees a traceback.
+- add_flag, line 43: float(out.get("value", 0)) has no try/except, unlike normalize_value. Without normalize_value first, value "" or "abc" raises ValueError, and value None (JSON null) raises TypeError. TypeError is not caught by cli.py, so the user sees a traceback.
 - add_flag with value "nan": float("nan") > 100 is False, so NaN is never flagged. normalize_value also passes NaN through, and value_non_negative then passes it (nan < 0 is False).
-- strip_whitespace, line 37: record.items() fails with AttributeError when a record is not a dict (see data_loader.load_json).
+- strip_whitespace, line 36: record.items() fails with AttributeError when a record is not a dict (see data_loader.load_json).
 - Step order matters but is not documented or checked. `--steps add_flag normalize_value` behaves differently from the default order.
 Improvement:
 - Make add_flag reuse the same safe float conversion as normalize_value (one private helper), so the two steps handle bad values the same way.
@@ -55,12 +55,12 @@ Improvement:
 === validator.py ===
 Does well:
 - Rules are small functions that return None or a message, so each one is trivial to unit test.
-- validate checks rule names up front (lines 69-71) and prefixes each failure with the rule name, so the report shows which rule failed.
+- validate checks rule names up front (lines 70-72) and prefixes each failure with the rule name, so the report shows which rule failed.
 - ValidationReport.ok is derived from failed, so the flag cannot disagree with the counts.
 Could break:
-- validate, line 68: `rules or list(_RULES)` treats an empty list as "all rules". `--rules` with no values runs every rule, while `--steps` with no values runs none. The two flags behave in opposite ways.
-- has_id, line 24: `not record.get("id")` rejects the integer 0 and any other falsy id. A JSON file with "id": 0 fails with "missing or empty".
-- validate, line 76: a non-dict record raises AttributeError on record.get. Records from load_json are not guaranteed to be dicts.
+- validate, line 69: `rules or list(_RULES)` treats an empty list as "all rules". `--rules` with no values runs every rule, while `--steps` with no values runs none. The two flags behave in opposite ways.
+- has_id, line 26: `not record.get("id")` rejects the integer 0 and any other falsy id. A JSON file with "id": 0 fails with "missing or empty".
+- validate, line 82: a non-dict record raises AttributeError on record.get. Records from load_json are not guaranteed to be dicts.
 - Duplicate ids are not detected, and record_id is a plain str, so two records with the same id give ambiguous failure lines in the report.
 - An empty input list gives total=0, failed=0, ok=True, so an empty file reports PASSED.
 Improvement:
