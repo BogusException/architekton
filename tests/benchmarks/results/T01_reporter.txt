@@ -1,0 +1,68 @@
+PURPOSE
+
+reporter.py turns a ValidationReport (defined in validator.py) into text or JSON and writes the result to a file or to stdout. It keeps no state. Two pure formatters, to_text and to_json, return strings. One I/O function, write, sends the string to a destination.
+
+
+KEY FUNCTIONS
+
+_text_lines(report: ValidationReport) -> list[str]
+Builds the text view as a list of lines. The header line says "Validation PASSED" or "Validation FAILED" and shows the total, passed, and failed counts. If report.ok is False, it adds a "Failures:" section. Each failing record gets a "Record <id>:" line, followed by one indented line per failure message. Passing records are left out of this view.
+
+to_text(report: ValidationReport) -> str
+Joins the _text_lines output with newline characters. The result has no trailing newline.
+
+to_json(report: ValidationReport) -> str
+Returns a JSON string, indented by 2 spaces, with these top-level keys: passed, total, pass_count, fail_count, records. Each entry in records has id, passed, and failures. This view includes every record, passing and failing.
+
+write(report: ValidationReport, fmt: str = "text", dest: str | None = None) -> None
+Selects JSON when fmt is exactly "json". Any other value selects text. If dest is truthy, the function calls Path(dest).write_text(content). Otherwise it prints content to sys.stdout.
+
+
+DESIGN CHOICES
+
+1. Formatting is separate from I/O. to_text and to_json return strings, so a test can check the output without touching the file system.
+
+2. The two modes show different data. Text is for a person and lists failures only. JSON is for a program and lists every record. The same report gives a different picture in each mode.
+
+3. The output uses the counts stored on the report (total, passed, failed) and the ok property. The module does not recount from results. It trusts the validator.
+
+4. Failure messages keep the rule name. validator.py line 80 builds each message as "rule_name: message", so the text view shows the rule name next to the problem.
+
+5. The format is a plain string with a default of "text". There is no enum and no check. Any value other than "json" gives text.
+
+6. The import at line 10 uses a bare module name (from validator import ...). The validator directory must be on sys.path for this to work.
+
+7. The annotation "str | None" at line 53 needs Python 3.10 or later when the module loads. validator.py line 11 already needs the same version, so this does not add a new requirement.
+
+8. write always overwrites the destination. There is no append mode and no backup of an earlier file.
+
+
+RISKS AND MISSING ERROR HANDLING
+
+Ordered by how likely each one is to matter in practice.
+
+1. Line 15 and line 16: an empty input passes. If an upstream step returns zero records, report.total is 0 and report.failed is 0. The output then reads "Validation PASSED" and "Total records : 0". Failure scenario: an empty or badly parsed input file gives a green result. Nothing in this module checks for total > 0.
+
+2. Line 55: the format check is exact. Failure scenario: a caller passes fmt="JSON" (capital letters) or "json " (trailing space) from a config file. The function writes text into a file the caller expects to be JSON. A later json.loads call fails far from the cause. No error is raised.
+
+3. Line 57: no handling for OSError, and no error message. Failure scenario: dest="out/reports/run1.txt" where out/reports does not exist raises FileNotFoundError from inside write. A permission error or a full disk raises the same kind of error. This file does not check whether cli.py catches it. That file was not read.
+
+4. Line 57: write_text is not atomic and has no encoding argument. Failure scenario on Windows, where the default encoding is often cp1252: line 25 prints the raw record id, so an id such as "order-東京-7" puts characters that cp1252 cannot encode into the text. write_text raises UnicodeEncodeError. The file was already opened with truncation, so the earlier report is gone and the file is empty or partial. The JSON path is not affected, because json.dumps escapes non-ASCII characters by default.
+
+5. Line 25: the record id is printed without escaping. Failure scenario: an id that contains a newline, such as "A1\n", adds an extra line to the text output. The "Failures:" block no longer lines up with the records it describes. The JSON view is not affected.
+
+6. Line 27, with validator.py line 35: the value_non_negative message puts the raw value into the string with {}, not {!r}. Failure scenario: a record has the string value "-1\n". float("-1\n") succeeds and returns -1.0, so the negative branch runs and the message contains a real newline. The same rule uses !r for the non-numeric case at validator.py line 37, so the two messages are handled in different ways. The text layout breaks at line 27.
+
+7. Line 20 and line 22: the text view trusts report.ok and the stored counts. Failure scenario: a ValidationReport built by hand, or by a future caller, has failed=0 and one result with passed=False. The header says "PASSED", the Failures section is skipped, and the failing record does not appear. validate() cannot produce this state today, so the risk depends on how future code builds reports.
+
+8. Line 25: duplicate record ids are not told apart. Failure scenario: two input rows both have id "42" and both fail. The text shows "Record 42:" twice, each with different messages, and gives no row number or position. The user cannot tell which input row each block describes. Records with no id get the label "(no id)" from validator.py line 82, so they have the same problem.
+
+9. Line 59: no handling for BrokenPipeError. Failure scenario: the command is run as "tool ... | head -1". head closes the pipe, print raises BrokenPipeError, and a traceback goes to stderr. The effect is small but noisy.
+
+10. Line 56: "if dest:" treats an empty string as no destination. Failure scenario: dest="" comes from an environment variable that is set but empty. The report goes to stdout instead of a file, and no error is raised. The caller expected a file.
+
+11. Lines 53 and 15: report and fmt are not checked. Failure scenario: a plain dict is passed as report. The error is AttributeError at line 15 ('dict' object has no attribute 'ok'). The message does not say what the caller did wrong.
+
+12. Line 32 and line 57: the file version has no trailing newline. Only the stdout path adds one, because print adds it. Failure scenario: a user runs "cat report.txt" and the shell prompt appears on the same line as the last failure message. Some POSIX tools also warn about a missing final newline.
+
+13. Line 10: the import is a bare module name. Failure scenario: the package is imported from another directory, for example "import small_project.reporter", and the import fails with ModuleNotFoundError: No module named 'validator'. This is a design risk, not a bug in the current single-directory layout.
