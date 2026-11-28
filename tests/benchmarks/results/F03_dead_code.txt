@@ -1,0 +1,108 @@
+F03 CONSOLIDATED DEAD CODE REPORT: small_project
+=================================================
+
+Scope:  tests/benchmarks/sample_jobs/small_project/
+        cli.py (65 lines), data_loader.py (45), reporter.py (59), transformer.py (55),
+        validator.py (93). 317 lines in total.
+Date:   2026-11-28
+Inputs: F03_cli_dead_code.txt, F03_data_loader_dead_code.txt, F03_reporter_dead_code.txt,
+        F03_transformer_dead_code.txt, F03_validator_dead_code.txt. All five were present,
+        so no module needed a fresh scan for a missing input. Each input reported zero findings.
+Method:
+  1. Every input claim was checked against the source. All five files were read in full with
+     line numbers.
+  2. An ast scan was run with python3 -I (Python 3.14.4) over all five modules together. The
+     script lives outside the repo (/tmp/f03_verify/scan.py). It checks: unused imports,
+     module-level names with no reference in any of the five modules (Name loads, Attribute
+     names, ImportFrom names, string constants), locals assigned but never read, statements
+     after return/raise/break/continue, constant if/while tests, and getattr/setattr/eval/
+     exec/__import__/globals/locals/vars calls.
+  3. grep across the five modules for every registry name (has_id, value_non_negative,
+     name_not_empty, normalize_value, strip_whitespace, add_flag), for load_csv, load_json,
+     to_text, to_json, RecordResult, __all__ and importlib.
+  4. Entry point: cli.py main() and its __main__ guard (line 64). No source file was modified.
+Result: 0 findings in all four categories. The five input reports are confirmed.
+
+DEFINITELY DEAD
+---------------
+none
+
+PROBABLY DEAD
+-------------
+none
+
+CHECK MANUALLY
+--------------
+none
+
+DROPPED OR RECLASSIFIED INPUT FINDINGS
+--------------------------------------
+No input finding was dropped, reclassified, or given a corrected line number, because no input
+reported a finding. No dead code was added. The items below looked like candidates in the
+scan output. Each was traced and is live, so none is a finding.
+
+1. transformer.py:23 normalize_value, transformer.py:34 strip_whitespace, transformer.py:40
+   add_flag. The ast scan finds no direct reference to these names in any module. Each is
+   registered by name through @register at lines 22, 33 and 39. apply() looks them up in
+   _REGISTRY at lines 49 and 54. cli.py:16 lists all three in DEFAULT_STEPS, and --steps
+   accepts them from the user. Live through string dispatch.
+
+2. validator.py:25 has_id, validator.py:32 value_non_negative, validator.py:42 name_not_empty.
+   Same pattern. Registered by @rule at lines 24, 31 and 41, called through _RULES at line 78
+   in validate(). cli.py:17 lists all three in DEFAULT_RULES. Live through string dispatch.
+
+3. data_loader.py:15 load_csv and data_loader.py:29 load_json. No other module references
+   them. Both are called from load() at lines 42 and 44, and cli.py:54 calls load(). Live.
+
+4. reporter.py:31 to_text and reporter.py:35 to_json. No other module references them. Both
+   are called from write() at line 55, and cli.py:57 calls write(). Live.
+
+5. transformer.py:11 _REGISTRY and validator.py:13 _RULES. A module-scope read check can
+   report these as unread. Both are written in the decorator and read in apply() (lines 49,
+   54) and validate() (lines 69, 70, 78). Live.
+
+6. validator.py:69 "rules or list(_RULES)". The fallback branch runs when rules is None or
+   empty. cli.py passes [] when the user gives "--rules" with no values (nargs="*"). Reachable.
+   Not dead code.
+
+7. reporter.py:10 ValidationReport and transformer.py:8, validator.py:8 Callable. Each is
+   used in annotations that are evaluated at def time (no "from __future__ import
+   annotations"). Live imports.
+
+8. cli.py:59 "except (ValueError, FileNotFoundError)". Neither class subclasses the other, so
+   the clause is not shadowed. load() raises both. Reachable.
+
+Other checks, all clean:
+  - No import in any module is unused (all 16 import statements checked against their use sites).
+  - No local variable is assigned and left unread.
+  - No statement follows a return, raise, break or continue.
+  - No if or while test is a constant.
+  - No __all__, importlib, getattr, setattr, eval, exec, __import__, globals, locals or vars
+    in any module, so there is no hidden dynamic access to worry about.
+  - Scope note: files under tests/benchmarks/results/ (such as M02_test_*.py) call into these
+    modules, but they were not used to decide any verdict.
+
+TOTALS
+------
+
+Findings per severity:
+
+  Severity           Count
+  -----------------  -----
+  DEFINITELY DEAD        0
+  PROBABLY DEAD          0
+  CHECK MANUALLY         0
+  -----------------  -----
+  Total                  0
+
+Findings per module and severity:
+
+  Module          DEFINITELY DEAD  PROBABLY DEAD  CHECK MANUALLY  Total
+  --------------  ---------------  -------------  --------------  -----
+  cli.py                        0              0               0      0
+  data_loader.py                0              0               0      0
+  reporter.py                   0              0               0      0
+  transformer.py                0              0               0      0
+  validator.py                  0              0               0      0
+  --------------  ---------------  -------------  --------------  -----
+  Total                         0              0               0      0
