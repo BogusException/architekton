@@ -1,0 +1,40 @@
+File
+tests/benchmarks/sample_jobs/small_project/reporter.py (59 lines, read in full, not modified)
+
+Summary
+The file has two real costs, and both appear only in the JSON path at large record counts. The to_json() function copies every record into a new dict and then holds the whole output string in memory, so peak memory grows with the record count. The text path and the write/print calls are already single-pass and show no bottleneck. At the sample project's size, none of these findings is measurable.
+
+Measurements were taken on Python 3.14.4 with synthetic reports of 100,000 records (1 in 10 failing, 2 messages each), best of 5 runs, using io.StringIO instead of disk so the timings do not include disk I/O. Timing scripts were run with python3 -I from /tmp and were not saved to the repo.
+
+Ranked findings
+
+1. Category: unnecessary copies (memory and materialization)
+Function: to_json(), lines 41-48 (record dict copy), line 50 (json.dumps), and write(), lines 55-57 (full content string built, then encoded again by Path.write_text).
+Description: Each record is rebuilt as a new dict before serialization, and the full JSON string is materialized in memory before it is written. At 100,000 records the intermediate dict build took about 36 ms of a roughly 77 ms serialization, and peak traced memory was 29.1 MB for an 8.3 MB output.
+Fix: Streaming one record at a time cuts memory but is slower. Measured: 278 ms streamed versus 88 ms buffered, with peak memory of 6.1 MB. Keep the buffered version unless memory is a problem. If it is, stream like this:
+
+    def _stream_json(report, fh):
+        fh.write('{\n  "passed": %s,\n  "total": %d,\n  "pass_count": %d,\n  "fail_count": %d,\n  "records": [' % (
+            json.dumps(report.ok), report.total, report.passed, report.failed))
+        for i, r in enumerate(report.results):
+            fh.write(("," if i else "") + "\n    " + json.dumps({"id": r.record_id, "passed": r.passed, "failures": r.failures}))
+        fh.write("\n  ]\n}")
+
+Note that this changes the byte layout of the output (records are compact, not indented), so the M02 tests must be updated before it ships.
+Estimated effect: streaming gives about 0.3x speed (roughly 3x slower) and about 4.8x lower peak memory (29.1 MB to 6.1 MB) at 100,000 records. Basis: measured on the synthetic run above. Matters only at large input sizes (tens of thousands of records and up). No change is needed at the sample size.
+
+2. Category: I/O (output size from serialization)
+Function: to_json(), line 50 (json.dumps(data, indent=2)).
+Description: indent=2 makes the output about 1.6x larger than the compact form. It also disables the C encoder fast path in json, but the measured CPU cost was small (about 1.09x).
+Fix: Use compact output when the file is machine-read only:
+
+    return json.dumps(data)
+
+Estimated effect: about 1.09x less CPU and about 1.6x fewer output bytes (8.1 MB to 5.1 MB at 100,000 records). Basis: measured on the synthetic run. Changes the output format, so this is a choice the user must make. Matters only at large input sizes.
+
+Categories with no findings
+
+N+1 patterns: None found. The loops in _text_lines() (lines 23-27) and to_json() (lines 41-48) walk the in-memory report once. No per-item calls, queries, or I/O happen inside them.
+
+Re-computation: None found. report.ok, report.total, report.passed, and report.failed are read a fixed number of times per call, not inside a loop. The text output is built with a list and one "\n".join() (line 32), not with repeated string concatenation.
+

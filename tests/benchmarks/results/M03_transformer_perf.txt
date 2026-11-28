@@ -1,0 +1,76 @@
+File
+tests/benchmarks/sample_jobs/small_project/transformer.py (55 lines, read in full; not modified)
+
+Summary
+The file has three real cost patterns: one dict copy per step per record, a registry lookup per record per step, and a full list pass per step. Only the dict copies have a measurable effect. Mutating records in place is about 1.15x faster on 10,000 records with three steps, but it breaks the "returns a modified copy" contract that the module docstring states. Hoisting the registry lookups gives about 1.05x. Fusing the steps into one pass gives no measurable gain. The file has no I/O, and step-name validation runs once per call, so neither is a finding.
+
+Measured on Python 3.14.4, 10,000 records of four fields, steps normalize_value, strip_whitespace, add_flag, best of 5 runs of 20 calls each (three repeat runs, spread shown):
+- current apply(): 10.1 to 10.4 ms per call
+- registry lookups hoisted out of the loop, otherwise unchanged: 9.5 to 10.0 ms (1.03x to 1.06x)
+- same three functions fused into one pass per record: 10.1 to 10.5 ms (1.0x, no gain)
+- one dict copy per record, then mutating steps: 8.6 to 9.0 ms (about 1.15x)
+- list(records) for 10,000 records: 25 to 40 us
+The step work dominates the cost. The two extra dict copies are about 15% of the current time.
+
+Ranked findings
+
+1. Category: unnecessary copies
+Lines: 25 (normalize_value), 36 (strip_whitespace), 42 (add_flag)
+Each step builds a new dict for each record, so a three-step chain allocates three record dicts per record. strip_whitespace also rebuilds every key, even when no string field has surrounding whitespace.
+Fix (changes the step contract: steps mutate the record they receive):
+    def apply(records: list[dict], steps: list[str]) -> list[dict]:
+        unknown = [s for s in steps if s not in _REGISTRY]
+        if unknown:
+            raise ValueError(f"Unknown transformations: {unknown}")
+        fns = [_REGISTRY[s] for s in steps]
+        out = []
+        for r in records:
+            r = dict(r)
+            for fn in fns:
+                r = fn(r)
+            out.append(r)
+        return out
+Then drop the dict copy inside each step and mutate the argument. For example, add_flag becomes: record["flagged"] = float(record.get("value", 0)) > 100; return record
+Estimate: about 1.15x faster (10.1 ms to 8.7 ms per 10,000 records, three steps). Record dict allocations fall from three per record to one. This figure includes the lookup hoisting from finding 2. The saving grows with the number of steps, because the current code adds one copy per step.
+Behavior: safe for apply() itself. apply() copies each input record before the first step, so the caller's records are not changed. Not safe for direct callers of normalize_value, strip_whitespace, or add_flag, or for any code that calls them through _REGISTRY and expects their argument to stay unchanged. Search for those callers before making the change.
+If the step functions must stay pure, finding 2 is the best safe option, at about 1.05x.
+
+2. Category: unneeded re-computation (per-record registry lookup)
+Line: 54
+_REGISTRY[step] runs once per record per step, so N x S dict lookups. Basis: a global load plus dict lookup costs about 30 to 35 ns, three per record is about 100 ns, and the current code spends about 1.0 us per record on three steps. The measured saving from hoisting alone is about 3% to 6%.
+Fix: resolve the functions once, after the unknown-name check:
+    fns = [_REGISTRY[s] for s in steps]
+    result = list(records)
+    for fn in fns:
+        result = [fn(r) for r in result]
+    return result
+Estimate: about 1.05x (range 1.03x to 1.06x). Only matters at large N.
+Behavior: identical output and errors.
+
+3. Category: N+1 patterns (one full pass per step)
+Lines: 52 to 54
+Each step walks the full list and builds a new intermediate list. For S steps, the code walks the list S times and creates S-1 intermediate lists that are discarded right away.
+Fix (fuse the steps into one pass per record):
+    fns = [_REGISTRY[s] for s in steps]
+    def run(r):
+        for fn in fns:
+            r = fn(r)
+        return r
+    return [run(r) for r in records]
+Estimate: about 1.0x, no measurable CPU gain (10.1 ms before, 10.1 ms after). The extra Python function call per record cancels the saved list passes, and the hoisted lookups are already counted in finding 2. The only gain is transient memory: each intermediate list holds N pointers, about 80 KB at N = 10,000 (8 bytes per pointer). Apply only to cut peak memory at very large N.
+Behavior: the output is identical because the step functions are pure. Error order changes. Step-major order raises for the first record that fails in step 1 before any record reaches step 2. Record-major order raises for the first failing record in input order. Both raise the same exception type from the same function. Safe unless a caller depends on which record's error appears first.
+
+4. Category: unnecessary copies (input list copy)
+Line: 52
+result = list(records) copies the input list. When steps is not empty, the first comprehension on line 54 discards that copy. The cost is one pointer copy of N elements, about 25 to 40 us at N = 10,000, which is under 0.5% of total time.
+Fix: covered by the fix in finding 1, which builds a new output list and does not copy the input list first. Do not change this on its own.
+Behavior: with an empty steps list, the current code returns a new list. The fix in finding 1 also returns a new list in that case. Safe.
+
+Categories with no findings
+
+Blocking I/O: None found. The file imports only typing.Callable. It performs no file, network, or console I/O.
+
+Repeated validation of the step list: None found. Lines 49 to 51 run once per apply() call, not once per record. The cost is O(S) per call.
+
+Repeated float() conversions: None found that is worth changing. Line 43 calls float() on a value that normalize_value (line 27) already converted, when normalize_value runs first. The call costs about 50 ns per record. It cannot be removed, because add_flag is also a registered step and must handle string values when it runs alone.
+Correctness note (not a performance finding): when add_flag runs without normalize_value, a record with value None raises TypeError from line 43, and a non-numeric string raises ValueError. Neither is caught. normalize_value catches both.

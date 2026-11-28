@@ -1,0 +1,16 @@
+File
+tests/benchmarks/sample_jobs/small_project/cli.py (65 lines). Read with siblings data_loader.py, transformer.py, validator.py, and reporter.py to confirm how cli.py calls them.
+
+Summary
+cli.py finds no performance bottleneck in its own code. It makes one call per pipeline stage (load, apply, validate, write) and passes whole lists or reports, so the per-record work happens inside the sibling modules, not in cli.py. Any performance work on this pipeline belongs in transformer.py, validator.py, and data_loader.py.
+
+Ranked findings
+None found.
+
+Categories with no findings
+N+1 patterns: None found. cli.py line 54 to line 57 call each stage once on the full data set. No per-record call or loop exists in cli.py.
+Unnecessary copies: None found. cli.py does not call list(), dict(), copy(), or slicing. The only data it holds is the result of each stage.
+Unneeded re-computation: None found. The argparse defaults (lines 16-17, 28, 35) and the help f-strings (lines 30, 37) run once at startup. Nothing inside a loop is recomputed.
+I/O blocking calls: None found. cli.py performs no direct file or stdout I/O. The report reaches stdout or the output file through a single call to write() at line 57, which writes the whole report as one string. It does not write per record.
+
+Out of scope (sibling modules, not cli.py findings): transformer.py line 52 copies the input list with list(records), and line 54 builds a new list for each step. validator.py line 78 looks up each rule by name for every record. data_loader.py line 25 wraps each csv.DictReader row in dict(row), which is already a dict. These are linear costs, and none of them is large at the input sizes this sample uses.
