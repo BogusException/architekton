@@ -30,14 +30,31 @@ def _tier_for_model(model):
     return "sonnet"
 
 
-def session_end(model, turns, heavy_prompts=0, light_prompts=0):
+def _detect_baseline_model():
+    """Read the configured model from ~/.claude/settings.json; return tier name."""
+    try:
+        base = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(os.path.expanduser("~"), ".claude")
+        settings = Path(base) / "settings.json"
+        data = json.loads(settings.read_text(encoding="utf-8"))
+        raw = data.get("model", "")
+        if raw:
+            return _tier_for_model(raw)
+    except Exception:
+        pass
+    return "sonnet"
+
+
+def session_end(model, turns, heavy_prompts=0, light_prompts=0, baseline_model=None):
     """Append one journal entry for the completed session."""
     path = _journal_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    if baseline_model is None:
+        baseline_model = _detect_baseline_model()
     entry = {
         "date": datetime.now(timezone.utc).isoformat(),
         "project": os.path.basename(os.path.abspath(os.getcwd())),
         "model": model,
+        "baseline_model": baseline_model,
         "turns": turns,
         "heavy_prompts": heavy_prompts,
         "light_prompts": light_prompts,
@@ -135,3 +152,69 @@ def report(days=None, pricing=None):
         rows.append(f"{proj:<30}  {total_sessions:>8}  {total_turns:>6}  {mix:<20}  ${est:>9.2f}")
 
     return "\n".join([header, col, sep] + rows)
+
+
+def savings_report(days=None, pricing=None):
+    """Return a formatted savings report comparing actual vs baseline model cost."""
+    if pricing is None:
+        pricing = _DEFAULT_PRICING
+    entries = _read_entries(days)
+    period = f"last {days} days" if days is not None else "all time"
+    if not entries:
+        return f"No journal entries ({period})."
+
+    eligible = [e for e in entries if e.get("baseline_model")]
+    if not eligible:
+        return (
+            f"No entries with baseline_model field ({period}).\n"
+            "Savings tracking requires architekton v0.4+ to be installed."
+        )
+
+    def _cost(tier, turns):
+        p = pricing.get(tier, _DEFAULT_PRICING["sonnet"])
+        return (
+            (turns * _TOKENS_IN_PER_TURN / 1_000_000) * p["input_per_1m"]
+            + (turns * _TOKENS_OUT_PER_TURN / 1_000_000) * p["output_per_1m"]
+        )
+
+    projects: dict = {}
+    for e in eligible:
+        proj = e.get("project", "unknown")
+        turns = e.get("turns", 0)
+        actual_tier = _tier_for_model(e.get("model", "sonnet"))
+        baseline_tier = _tier_for_model(e.get("baseline_model", "sonnet"))
+        actual = _cost(actual_tier, turns)
+        counterfactual = _cost(baseline_tier, turns)
+        if proj not in projects:
+            projects[proj] = {"actual": 0.0, "counterfactual": 0.0, "sessions": 0}
+        projects[proj]["actual"] += actual
+        projects[proj]["counterfactual"] += counterfactual
+        projects[proj]["sessions"] += 1
+
+    total_actual = sum(d["actual"] for d in projects.values())
+    total_cf = sum(d["counterfactual"] for d in projects.values())
+    total_saved = total_cf - total_actual
+    pct = (total_saved / total_cf * 100) if total_cf > 0 else 0.0
+
+    col = f"{'project':<30}  {'sessions':>8}  {'actual':>10}  {'would have':>12}  {'saved':>10}"
+    sep = "-" * len(col)
+    rows = []
+    for proj, data in sorted(projects.items()):
+        saved = data["counterfactual"] - data["actual"]
+        rows.append(
+            f"{proj:<30}  {data['sessions']:>8}  "
+            f"${data['actual']:>9.2f}  ${data['counterfactual']:>11.2f}  ${saved:>9.2f}"
+        )
+    total_row = (
+        f"{'TOTAL':<30}  {len(eligible):>8}  "
+        f"${total_actual:>9.2f}  ${total_cf:>11.2f}  ${total_saved:>9.2f}"
+        f"  ({pct:.0f}% saved)"
+    )
+    header = (
+        f"Savings report  --  {period}  ({len(eligible)} sessions with routing data)\n"
+        f"Estimated cost of actual model routing vs always using baseline model.\n"
+    )
+    lines = [header, col, sep] + rows + [sep, total_row]
+    if total_saved <= 0:
+        lines.append("\nNote: architekton routed to equal or higher tiers than baseline this period.")
+    return "\n".join(lines)
