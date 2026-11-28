@@ -1,0 +1,255 @@
+F02 CROSS-MODULE CALL GRAPH: tests/benchmarks/sample_jobs/small_project/
+=========================================================================
+
+Scope: every call that crosses a module boundary in cli.py, data_loader.py,
+reporter.py, transformer.py, validator.py. Line numbers refer to the source
+files as read on 2026-11-28. Calls into the standard library are not
+counted as cross-module calls. Intra-module calls appear only where they
+extend a chain that started with a cross-module call.
+
+1. MODULE DEPENDENCY SUMMARY
+----------------------------
+
+  cli.py         imports: data_loader.load, transformer.apply,
+                          validator.validate, reporter.write
+  reporter.py    imports: validator.ValidationReport (annotation only)
+  data_loader.py imports: nothing from the package
+  transformer.py imports: nothing from the package
+  validator.py   imports: nothing from the package
+
+cli.py is the only module that makes cross-module function calls. It is the
+sole orchestrator. data_loader, transformer, and validator are leaves with
+respect to the package. reporter depends on validator for a type and for
+attribute access on the object it receives, but never calls a validator
+function.
+
+Total cross-module function calls: 4 (all made by cli.main).
+Total cross-module attribute or property accesses: 2 kinds (see section 3).
+
+
+2. CROSS-MODULE FUNCTION CALLS
+------------------------------
+
+All four calls happen inside cli.main, in the try block at cli.py:53-58.
+They run in this fixed order, and each output feeds the next call.
+
+CALL 1
+  Caller : cli.main                       cli.py:54
+  Callee : data_loader.load               data_loader.py:38
+  Args   : args.file (str), a path to a .csv or .json file
+  Returns: list[dict], one dict per record. Bound to `records`.
+           CSV rows: every value is a str (csv.DictReader).
+           JSON rows: whatever json.load produced (any JSON type).
+  Raises : ValueError (unsupported suffix, missing CSV columns, JSON root
+           not an array, malformed JSON via JSONDecodeError which is a
+           ValueError subclass), FileNotFoundError (from open).
+           All of these are caught at cli.py:59.
+
+CALL 2
+  Caller : cli.main                       cli.py:55
+  Callee : transformer.apply              transformer.py:47
+  Args   : records (list[dict]) from CALL 1,
+           args.steps (list[str]), default DEFAULT_STEPS
+           ["strip_whitespace", "normalize_value", "add_flag"]
+  Returns: list[dict], new list of transformed copies. Rebinds `records`.
+  Raises : ValueError for unknown step names (transformer.py:51).
+           ValueError or TypeError can also escape from add_flag
+           (transformer.py:43) when it runs on a non-numeric value, for
+           example if the user passes --steps add_flag without
+           normalize_value. ValueError is caught; TypeError is not.
+
+CALL 3
+  Caller : cli.main                       cli.py:56
+  Callee : validator.validate             validator.py:67
+  Args   : records (list[dict]) from CALL 2,
+           args.rules (list[str]), default DEFAULT_RULES
+           ["has_id", "value_non_negative", "name_not_empty"]
+  Returns: ValidationReport (dataclass: total, passed, failed, results).
+           Bound to `report`.
+  Raises : ValueError for unknown rule names (validator.py:72).
+  Note   : an empty list (--rules with no values) is falsy, so
+           `rules or list(_RULES)` at validator.py:69 runs ALL rules,
+           not zero rules.
+
+CALL 4
+  Caller : cli.main                       cli.py:57
+  Callee : reporter.write                 reporter.py:53
+  Args   : report (ValidationReport) from CALL 3,
+           fmt=args.format (str, "text" or "json"),
+           dest=args.output (str or None)
+  Returns: None. Side effect: prints to stdout, or writes dest file.
+  Raises : OSError from Path.write_text if dest is not writable. This is
+           not in the except clause at cli.py:59 and would surface as a
+           traceback.
+
+
+3. CROSS-MODULE ATTRIBUTE AND PROPERTY ACCESS
+---------------------------------------------
+
+These are not function calls in the source, but they are runtime
+dependencies across a module boundary.
+
+ACCESS A
+  Accessor: cli.main                      cli.py:58
+  Target  : validator.ValidationReport.ok (property, validator.py:62-64)
+  Args    : none (self = report)
+  Returns : bool, True when report.failed == 0.
+  Use     : picks the exit code: 0 when ok, 1 when not.
+
+ACCESS B
+  Accessor: reporter._text_lines          reporter.py:15, 20, 23-27
+            reporter.to_json              reporter.py:37-47
+  Target  : validator.ValidationReport fields total, passed, failed,
+            results, and property ok. Also validator.RecordResult fields
+            record_id, passed, failures (reached through report.results).
+  Args    : none
+  Returns : ints, bools, list[RecordResult], list[str], str.
+  Note    : reporter.py:10 imports ValidationReport only for the type
+            annotations at lines 13, 31, 35, 53. Nothing is constructed or
+            called. The coupling is structural: renaming a field in
+            validator.py breaks reporter.py with no import error.
+            The `ok` property is a real method call at runtime, so it is
+            counted in the chains in section 5.
+
+No other module reads another module's data. transformer.py and
+data_loader.py never see validator or reporter types.
+
+
+4. DYNAMIC DISPATCH INSIDE CALLEES (NOT CROSS-MODULE)
+-----------------------------------------------------
+
+These look like extra hops but stay inside one module. They are listed so
+the chain lengths in section 5 are not misread.
+
+  transformer.apply -> _REGISTRY[step](r)       transformer.py:54
+    Dispatches to normalize_value (23), strip_whitespace (34), add_flag
+    (40). Arg: one record dict. Returns: a new dict. Called once per
+    record per step.
+
+  validator.validate -> _RULES[rule_name](record)   validator.py:78
+    Dispatches to has_id (25), value_non_negative (32), name_not_empty
+    (42). Arg: one record dict. Returns: str on failure, None on pass.
+    Called once per record per rule.
+
+  validator.validate -> RecordResult(...)       validator.py:81
+  validator.validate -> ValidationReport(...)   validator.py:88
+    Constructors in the same module. Args: record_id str, passed bool,
+    failures list[str]; then total, passed, failed, results.
+
+  The registries are filled at import time by the @register and @rule
+  decorators (transformer.py:22,33,39 and validator.py:24,31,41). Importing
+  the module is therefore required for any step or rule name to exist.
+  cli.py:11-12 does that import.
+
+
+5. CALL CHAINS
+--------------
+
+Hop count starts at cli.main = 0. Each arrow is one hop.
+
+5.1 Chains longer than two hops (3 or more)
+
+  CHAIN L1 (4 hops, crosses one module boundary at hop 1, then another
+  at hop 4)
+    cli.main
+      -> reporter.write                 (hop 1, cli.py:57)
+      -> reporter.to_text               (hop 2, reporter.py:55)
+      -> reporter._text_lines           (hop 3, reporter.py:32)
+      -> ValidationReport.ok            (hop 4, reporter.py:15 and 20)
+    Taken when fmt == "text" (the default). The final hop goes back into
+    validator.py. This is the longest chain in the package and the only
+    one that re-enters a module already visited.
+
+  CHAIN L2 (3 hops)
+    cli.main
+      -> reporter.write                 (hop 1, cli.py:57)
+      -> reporter.to_json               (hop 2, reporter.py:55)
+      -> ValidationReport.ok            (hop 3, reporter.py:37)
+    Taken when fmt == "json". The hop 3 target is in validator.py.
+
+  CHAIN L3 (3 hops, only when fmt == "text")
+    cli.main
+      -> reporter.write                 (hop 1)
+      -> reporter.to_text               (hop 2)
+      -> reporter._text_lines           (hop 3)
+    This is the same chain as L1 without the property access. Listed
+    separately because the property access at hop 4 only matters for
+    coupling analysis.
+
+5.2 Chains of exactly two hops
+
+  CHAIN M1: cli.main -> data_loader.load -> load_csv       (data_loader.py:42)
+            Taken for .csv files. Arg: path str. Returns: list[dict].
+  CHAIN M2: cli.main -> data_loader.load -> load_json      (data_loader.py:44)
+            Taken for .json files. Arg: path str. Returns: list[dict].
+  CHAIN M3: cli.main -> transformer.apply -> <registered step>
+            (transformer.py:54). Runs len(steps) * len(records) times.
+  CHAIN M4: cli.main -> validator.validate -> <registered rule>
+            (validator.py:78). Runs len(rules) * len(records) times.
+  CHAIN M5: cli.main -> validator.validate -> RecordResult / ValidationReport
+            (validator.py:81, 88).
+
+5.3 Chains of one hop
+
+  cli.main -> validator.ValidationReport.ok   (cli.py:58)
+
+5.4 Chain summary
+
+  Longest chain      : 4 hops (L1), 3 module visits
+                       (cli -> reporter -> validator).
+  Chains over 2 hops : 3 (L1, L2, L3). All run through reporter.write.
+  load, apply and validate chains stop at 2 hops.
+  Recursion          : none.
+  Cycles             : none at module level. The dependency edges are
+                       cli -> {data_loader, transformer, validator,
+                       reporter} and reporter -> validator.
+
+
+6. DATA FLOW ALONG THE MAIN PATH
+--------------------------------
+
+  args.file
+    -> data_loader.load          -> list[dict]        (strings for CSV)
+    -> transformer.apply         -> list[dict]        (value now float,
+                                                       flagged added)
+    -> validator.validate        -> ValidationReport
+    -> reporter.write            -> None (stdout or file)
+  report.ok -> sys.exit(0 or 1)
+
+The data contract between stages is an untyped list[dict]. Nothing checks
+that transformer output still has the keys validator reads. The only
+guard is the keys' default values: validator.py:26 treats a missing "id"
+as a failure, and validator.py:34 and 43 default "value" and "name".
+
+
+7. CROSS-MODULE RISKS FOUND WHILE TRACING
+-----------------------------------------
+
+  1. Exception gap. cli.py:59 catches only ValueError and
+     FileNotFoundError. OSError from reporter.write (reporter.py:57),
+     PermissionError and IsADirectoryError from data_loader.load (open),
+     and TypeError from add_flag escape as tracebacks.
+
+  2. Empty --rules runs every rule (validator.py:69). An empty --steps is
+     a no-op (transformer.py:52). The two list arguments behave
+     differently for the same input shape.
+
+  3. Step order is caller-controlled. add_flag (transformer.py:43) calls
+     float() on the raw value. If the user lists add_flag before
+     normalize_value, or omits normalize_value, a non-numeric CSV value
+     raises ValueError and the run exits with code 2.
+
+  4. Shared mutable state. transformer.apply copies the list but
+     strip_whitespace returns a new dict, normalize_value and add_flag
+     call dict(record). Records are not mutated in place, so
+     data_loader.load_json output is safe. The shallow copy would not
+     protect nested values.
+
+  5. Structural coupling reporter -> validator (section 3, ACCESS B).
+     A field rename in ValidationReport or RecordResult breaks reporter
+     at runtime only.
+
+  6. Load-order dependency. The step and rule registries fill when the
+     module is imported. cli.py imports both, so it works today. Any new
+     entry point that imports only `apply` by name still works, but one
+     that never imports the module would see empty registries.
