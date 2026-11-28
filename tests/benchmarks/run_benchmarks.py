@@ -18,6 +18,15 @@ Usage
   # Run each test TWICE and produce a side-by-side comparison
   python run_benchmarks.py --mode both
 
+  # Run only the architekton side, loading cached plain results for comparison
+  python run_benchmarks.py --mode ark-only
+
+  # Save plain results to .baseline/ for future ark-only runs
+  python run_benchmarks.py --mode plain --save-baseline
+
+  # Seed .baseline/ from an existing run (no API calls)
+  python run_benchmarks.py --mode plain --save-baseline --baseline-from 20261127_225643
+
   # Filter by category or test ID
   python run_benchmarks.py --category parallel_jobs
   python run_benchmarks.py --test P01
@@ -42,6 +51,11 @@ Modes explained
   both         Runs each test twice (architekton first, plain second) and
                writes a comparison report. Use this for the cost_comparison
                category or any head-to-head you want to publish.
+
+  ark-only     Runs only the architekton side. Loads the matching plain result
+               from results/.baseline/<test_id>.json (cached from a prior plain
+               run) so you get a comparison without paying for plain again.
+               Use --baseline-from <run_id> to point at a specific run instead.
 
 Output
 ------
@@ -74,7 +88,9 @@ except ImportError:
 REPO_ROOT   = Path(__file__).resolve().parent.parent.parent
 BENCH_DIR   = Path(__file__).resolve().parent
 TESTS_FILE  = BENCH_DIR / "tests.yaml"
-RESULTS_DIR = BENCH_DIR / "results"
+RESULTS_DIR         = BENCH_DIR / "results"
+BASELINE_DIR        = RESULTS_DIR / ".baseline"
+TIMING_HISTORY_FILE = RESULTS_DIR / ".timing_history.json"
 
 CLAUDE_DIR  = Path(os.environ.get("CLAUDE_CONFIG_DIR", "") or Path.home() / ".claude")
 BRAIN_HOME  = CLAUDE_DIR / "architekton"
@@ -161,6 +177,66 @@ def _journal_new_entries(before: int) -> list[dict]:
     return entries
 
 
+# ── Timing history ─────────────────────────────────────────────────────────────
+
+def _load_timing_history() -> dict:
+    if not TIMING_HISTORY_FILE.exists():
+        return {}
+    try:
+        return json.loads(TIMING_HISTORY_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def _record_timing(test_id: str, mode: str, elapsed_s: float) -> None:
+    history = _load_timing_history()
+    key = f"{test_id}_{mode}"
+    entries = history.get(key, [])
+    entries.append({"elapsed_s": round(elapsed_s, 1), "ts": datetime.now().isoformat()})
+    history[key] = entries[-10:]
+    TIMING_HISTORY_FILE.write_text(json.dumps(history, indent=2))
+
+
+def _eta_info(test_id: str, mode: str, history: dict) -> str:
+    """Return a one-line timing hint for a test based on history."""
+    key = f"{test_id}_{mode}"
+    entries = history.get(key, [])
+    if not entries:
+        return ""
+    avg = sum(e["elapsed_s"] for e in entries) / len(entries)
+    last = entries[-1]["elapsed_s"]
+    n = len(entries)
+    avg_fmt = f"{avg / 60:.1f}m" if avg >= 60 else f"{avg:.0f}s"
+    return f"avg {avg_fmt} ({n} run{'s' if n > 1 else ''}, last {last:.0f}s)"
+
+
+# ── Baseline cache ──────────────────────────────────────────────────────────────
+
+def _save_baseline(test_id: str, plain_data: dict) -> None:
+    BASELINE_DIR.mkdir(parents=True, exist_ok=True)
+    (BASELINE_DIR / f"{test_id}.json").write_text(json.dumps(plain_data, indent=2))
+
+
+def _load_baseline(test_id: str) -> dict | None:
+    path = BASELINE_DIR / f"{test_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return None
+
+
+def _find_result_in_run(run_dir: Path, test_id: str) -> dict | None:
+    """Find the result.json for test_id in a previous run directory."""
+    for result_file in run_dir.glob(f"*/{test_id}_*/result.json"):
+        try:
+            return json.loads(result_file.read_text())
+        except Exception:
+            pass
+    return None
+
+
 # ── Test runner ────────────────────────────────────────────────────────────────
 
 def _run_classify(test: dict, mode: str, run_dir: Path, dry_run: bool) -> dict:
@@ -226,13 +302,33 @@ def _build_plain_cmd(test: dict, real_claude: str) -> list[str]:
     ]
 
 
-def _run_job(test: dict, mode: str, test_dir: Path, dry_run: bool, real_claude: str) -> dict:
+def _run_job(test: dict, mode: str, test_dir: Path, dry_run: bool, real_claude: str,
+             test_id: str = "", save_baseline: bool = False,
+             baseline_from: Path | None = None) -> dict:
     """Execute a job test in the requested mode and return a result dict."""
     workdir = str(REPO_ROOT / test.get("workdir", "."))
     log_file = test_dir / "output.log"
 
+    # Baseline seeding: --mode plain --save-baseline --baseline-from <run_dir>
+    # Copies plain results from an existing run rather than re-running.
+    if mode == "plain" and save_baseline and baseline_from is not None:
+        if dry_run:
+            candidates = list(baseline_from.glob(f"*/{test_id}_*/result.json"))
+            found = "found" if candidates else "not found in source"
+            print(f"  [dry-run] seed baseline {test_id}: {found}")
+            return {"status": "dry-run"}
+        existing = _find_result_in_run(baseline_from, test_id)
+        if existing and "plain" in existing:
+            _save_baseline(test_id, existing["plain"])
+            return {"status": "seeded", "plain": existing["plain"]}
+        return {
+            "status": "skipped",
+            "reason": f"no plain sub-dict for {test_id} in {baseline_from.name}",
+        }
+
+    # Build command list for execution.
     cmds = []
-    if mode in ("architekton", "both"):
+    if mode in ("architekton", "both", "ark-only"):
         cmds.append(("architekton", _build_architekton_cmd(test)))
     if mode in ("plain", "both"):
         cmds.append(("plain", _build_plain_cmd(test, real_claude)))
@@ -264,30 +360,56 @@ def _run_job(test: dict, mode: str, test_dir: Path, dry_run: bool, real_claude: 
             }
             log.write(f"\n[{label}] exit={proc.returncode} elapsed={elapsed:.1f}s\n")
 
+    # For ark-only mode: attach cached plain baseline for comparison.
+    if mode == "ark-only":
+        cached: dict | None = None
+        if baseline_from is not None:
+            existing = _find_result_in_run(baseline_from, test_id)
+            if existing and "plain" in existing:
+                cached = existing["plain"]
+        if cached is None:
+            cached = _load_baseline(test_id)
+        if cached is not None:
+            results["plain"] = cached
+        else:
+            results["plain_note"] = "no cached baseline; run --mode plain --save-baseline first"
+
+    # Save plain result to baseline cache when requested.
+    if save_baseline and "plain" in results and baseline_from is None:
+        _save_baseline(test_id, results["plain"])
+
+    # Pass/fail: for ark-only mode, cached plain result doesn't affect status.
     status = "pass"
     for label, r in results.items():
-        if r["exit_code"] != 0:
+        if not isinstance(r, dict):
+            continue
+        if mode == "ark-only" and label == "plain":
+            continue
+        if r.get("exit_code", 0) != 0:
             status = "fail"
             break
 
     # Token estimation from journal turn counts (500 input + 1500 output per turn).
     _tpt = 500 + 1500
     for label, r in results.items():
+        if not isinstance(r, dict):
+            continue
         total = sum(e.get("turns", 0) * _tpt for e in r.get("journal_entries", []))
         if label == "architekton":
             r["ark_total_tokens"] = total
-        else:
+        elif label == "plain" and "plain_tokens" not in r:
             r["plain_tokens"] = total
 
     extra: dict = {
         "token_note": "token counts estimated from journal turn counts (turns * 2000)",
     }
-    ark = results.get("architekton", {})
+    ark  = results.get("architekton", {})
     plain = results.get("plain", {})
-    if "ark_total_tokens" in ark and "plain_tokens" in plain:
-        extra["overhead_tokens"] = max(0, ark["ark_total_tokens"] - plain["plain_tokens"])
-        if ark.get("elapsed_s", 0) > 0 and plain.get("elapsed_s") is not None:
-            extra["speedup"] = round(plain["elapsed_s"] / ark["elapsed_s"], 2)
+    if isinstance(plain, dict):
+        if "ark_total_tokens" in ark and "plain_tokens" in plain:
+            extra["overhead_tokens"] = max(0, ark["ark_total_tokens"] - plain["plain_tokens"])
+            if ark.get("elapsed_s", 0) > 0 and plain.get("elapsed_s") is not None:
+                extra["speedup"] = round(plain["elapsed_s"] / ark["elapsed_s"], 2)
 
     return {"status": status, "log": str(log_file.relative_to(BENCH_DIR)), **extra, **results}
 
@@ -578,7 +700,8 @@ def _prompt_continue(pending: list[dict]) -> bool:
     return answer in ("", "y", "yes")
 
 
-def run_all(tests: list[dict], mode: str, run_dir: Path, dry_run: bool, real_claude: str):
+def run_all(tests: list[dict], mode: str, run_dir: Path, dry_run: bool, real_claude: str,
+            save_baseline: bool = False, baseline_from: Path | None = None):
     run_dir.mkdir(parents=True, exist_ok=True)
     manifest = {
         "run_id": run_dir.name,
@@ -588,27 +711,40 @@ def run_all(tests: list[dict], mode: str, run_dir: Path, dry_run: bool, real_cla
         "tests": [],
     }
 
+    timing_history = _load_timing_history()
     total = len(tests)
     for i, test in enumerate(tests, 1):
         tid = test["id"]
         cat = test["category"]
-        print(f"\n[{i}/{total}] {tid} ({cat}) -- {test['name']}")
+        print(f"\n[{i}/{total}]  {tid}  {cat}  --  {test['name']}")
+        eta = _eta_info(tid, mode, timing_history)
+        if eta:
+            print(f"        {eta}")
 
         test_dir = run_dir / cat / f"{tid}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         test_dir.mkdir(parents=True, exist_ok=True)
         result_file = test_dir / "result.json"
 
+        t_start = time.monotonic()
         try:
             if cat == "classification":
                 result = _run_classify(test, mode, test_dir, dry_run)
             else:
-                result = _run_job(test, mode, test_dir, dry_run, real_claude)
+                result = _run_job(
+                    test, mode, test_dir, dry_run, real_claude,
+                    test_id=tid, save_baseline=save_baseline, baseline_from=baseline_from,
+                )
         except KeyboardInterrupt:
             print(f"\n  Interrupted -- skipping {tid}")
             result = {"status": "interrupted"}
         except Exception as exc:
             print(f"  ERROR: {exc}")
             result = {"status": "error", "error": str(exc)}
+
+        elapsed_wall = time.monotonic() - t_start
+        if not dry_run and result.get("status") not in ("dry-run", "interrupted", "error", "skipped"):
+            _record_timing(tid, mode, elapsed_wall)
+            timing_history = _load_timing_history()
 
         result["id"] = tid
         result["name"] = test["name"]
@@ -617,16 +753,17 @@ def run_all(tests: list[dict], mode: str, run_dir: Path, dry_run: bool, real_cla
         result_file.write_text(json.dumps(result, indent=2))
 
         status = result.get("status", "?")
-        icon = {"pass": "PASS", "fail": "FAIL", "skipped": "SKIP",
+        icon = {"pass": "PASS", "fail": "FAIL", "skipped": "SKIP", "seeded": "SEED",
                 "dry-run": "DRY", "error": "ERR", "interrupted": "INT"}.get(status, status)
         print(f"  [{icon}]", end="")
         if "elapsed_s" in result:
             print(f"  {result['elapsed_s']:.1f}s", end="")
-        if "architekton" in result and "elapsed_s" in result["architekton"]:
+        if "architekton" in result and isinstance(result["architekton"], dict):
             a = result["architekton"]
             p = result.get("plain", {})
-            print(f"  architekton={a['elapsed_s']:.1f}s", end="")
-            if p:
+            if "elapsed_s" in a:
+                print(f"  architekton={a['elapsed_s']:.1f}s", end="")
+            if isinstance(p, dict) and "elapsed_s" in p:
                 print(f"  plain={p['elapsed_s']:.1f}s", end="")
         print()
 
@@ -710,12 +847,13 @@ def main():
     )
     parser.add_argument(
         "--mode",
-        choices=["architekton", "plain", "both"],
+        choices=["architekton", "plain", "both", "ark-only"],
         default=None,
         help=(
             "architekton: use the job runner (default when wrapper is on PATH). "
             "plain: bypass architekton, call real claude directly. "
-            "both: run each test twice and compare."
+            "both: run each test twice and compare. "
+            "ark-only: run architekton and load cached plain baseline for comparison."
         ),
     )
     parser.add_argument(
@@ -733,6 +871,21 @@ def main():
     parser.add_argument(
         "--yes", "-y", action="store_true",
         help="skip the cost-confirmation prompt",
+    )
+    parser.add_argument(
+        "--save-baseline", action="store_true",
+        help=(
+            "save plain results to results/.baseline/<test_id>.json after each plain run. "
+            "With --baseline-from, seeds from an existing run without re-running anything."
+        ),
+    )
+    parser.add_argument(
+        "--baseline-from", metavar="RUN_ID",
+        help=(
+            "run ID of an existing results directory (e.g. 20261127_225643). "
+            "With --mode plain --save-baseline: seeds .baseline/ from that run, no API calls. "
+            "With --mode ark-only: uses that run as the plain comparison source."
+        ),
     )
     parser.add_argument(
         "--output", metavar="DIR", default=None,
@@ -807,6 +960,13 @@ def main():
                 print("Aborted.")
                 return
 
+    # Resolve --baseline-from to an absolute path.
+    baseline_from_path: Path | None = None
+    if args.baseline_from:
+        baseline_from_path = RESULTS_DIR / args.baseline_from
+        if not baseline_from_path.exists():
+            sys.exit(f"Baseline source not found: {baseline_from_path}")
+
     # Prepare output directory.
     if args.output:
         run_dir = Path(args.output)
@@ -815,12 +975,20 @@ def main():
         run_dir = RESULTS_DIR / run_id
 
     # Run.
-    manifest = run_all(selected, args.mode, run_dir, args.dry_run, real_claude)
+    manifest = run_all(
+        selected, args.mode, run_dir, args.dry_run, real_claude,
+        save_baseline=args.save_baseline,
+        baseline_from=baseline_from_path,
+    )
 
-    passed = sum(1 for t in manifest["tests"] if t["status"] == "pass")
-    failed = sum(1 for t in manifest["tests"] if t["status"] == "fail")
-    skipped = sum(1 for t in manifest["tests"] if t["status"] in ("skipped", "dry-run"))
-    print(f"\nSummary: {passed} passed, {failed} failed, {skipped} skipped")
+    passed  = sum(1 for t in manifest["tests"] if t["status"] == "pass")
+    failed  = sum(1 for t in manifest["tests"] if t["status"] == "fail")
+    skipped = sum(1 for t in manifest["tests"] if t["status"] in ("skipped", "dry-run", "seeded"))
+    seeded  = sum(1 for t in manifest["tests"] if t["status"] == "seeded")
+    parts   = [f"{passed} passed", f"{failed} failed", f"{skipped} skipped"]
+    if seeded:
+        parts.append(f"{seeded} baseline seeded")
+    print(f"\nSummary: {', '.join(parts)}")
     if failed:
         sys.exit(1)
 

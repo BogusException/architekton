@@ -28,8 +28,11 @@ tests/benchmarks/results/*/
 !tests/benchmarks/results/20261127_221126/
 !tests/benchmarks/results/20261127_225643/
 
-# Loose plain-mode output files written to results root during benchmarks
-tests/benchmarks/results/P01_*.txt
+# Loose output files written to results root (plain-mode and analysis artifacts)
+tests/benchmarks/results/*.txt
+
+# Benchmark timing history and baseline cache (local only)
+tests/benchmarks/results/.timing_history.json
 
 # Logs & runtime
 *.log
