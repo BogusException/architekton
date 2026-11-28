@@ -1,0 +1,55 @@
+Purpose
+reporter.py turns a ValidationReport into text or JSON. It writes the result to a file or prints it to stdout. The module imports ValidationReport from validator.py (line 10), so validator.py produces the report and reporter.py renders it. This is the output stage of the small_project pipeline. The file does not show which module calls write(). cli.py probably does, but this summary does not confirm that.
+
+Key functions
+_text_lines(report: ValidationReport) -> list[str] (lines 13-28)
+Private helper that builds the text report one line at a time. The first line is "Validation PASSED" or "Validation FAILED", based on report.ok. Three count lines follow, for report.total, report.passed, and report.failed. If report.ok is false, the function adds a blank line, a "Failures:" heading, and then, for each result where result.passed is false, a "Record <record_id>:" line followed by one "    - <msg>" line for each entry in result.failures. Passing records are left out.
+
+to_text(report: ValidationReport) -> str (lines 31-32)
+Joins the output of _text_lines with newline characters. Returns the string with no trailing newline.
+
+to_json(report: ValidationReport) -> str (lines 35-50)
+Builds a dict with these keys: passed (report.ok), total, pass_count (report.passed), fail_count (report.failed), and records. Each entry in records has id (record_id), passed, and failures, taken from every item in report.results. Unlike the text form, passing records are included. Returns json.dumps(data, indent=2), with no trailing newline.
+
+write(report: ValidationReport, fmt: str = "text", dest: str | None = None) -> None (lines 53-59)
+Calls to_json if fmt is exactly "json". For any other value, it calls to_text. If dest is truthy, it writes the content to that path with Path.write_text. Otherwise it prints the content to sys.stdout. Returns None. The function has no try/except, so file and print errors pass to the caller.
+
+Design choices
+Format selection uses one equality test (line 55). Any value other than "json" produces text. There is no enum and no validation of fmt.
+
+The two formats show different detail. Text lists only failing records. JSON lists every record with a passed flag.
+
+Both formats take the top-level status from report.ok (lines 15, 20, 37). Neither one computes the status from the counts.
+
+Rendering uses plain string building and json.dumps. The module uses only the standard library.
+
+File output uses Path.write_text, which passes no encoding argument. Stdout output uses print, which adds a trailing newline. The two destinations differ by one final newline.
+
+The module returns no data. A caller gets the result only through the file or stdout side effect.
+
+Risks and missing error handling
+1. Lines 23-26. If a failed result has failures set to None, the loop at line 26 raises TypeError and no output is produced. Fix: iterate over "result.failures or []".
+
+2. Lines 43 and 50. If record_id or any item in failures is not JSON-serializable (for example a set, datetime, or Decimal), json.dumps raises TypeError at line 50 and nothing is written. Fix: pass default=str to json.dumps.
+
+3. Line 50. A float NaN or infinity in record_id or failures is written as the bare token NaN or Infinity, which is not valid JSON. Fix: pass allow_nan=False so the error is raised, or convert values to str in to_json.
+
+4. Lines 15, 20, 37. The status comes from report.ok, but the counts come from report.total, report.passed, and report.failed. If these disagree (for example ok is false while failed is 0), the text shows FAILED with no failure lines, and the JSON shows passed false with fail_count 0. The module does not check this. Fix: derive ok from the counts in one place, or check consistency in validator.py.
+
+5. Lines 13-28 with empty input. When results is empty, the text shows the counts as 0 and the status as whatever report.ok says. The module has no explicit handling for this case. Fix: define the status for zero records and print it as its own line.
+
+6. Line 56. "if dest:" treats an empty string as no destination. A caller that passes "" from an unset option gets stdout with no warning. Fix: use "if dest is not None:" and reject empty strings with ValueError.
+
+7. Line 57. Path.write_text has no error handling. A missing parent directory, a permission error, or a full disk raises OSError to the caller. A partly written file can stay on disk. Fix: catch OSError, and write to a temporary file, then call os.replace.
+
+8. Line 57. Overwrites an existing file at dest without a check or warning. Fix: add an overwrite flag, or write only when the target does not exist.
+
+9. Line 57. No encoding is set. On a non-UTF-8 locale, a record_id or message that contains non-ASCII characters can raise UnicodeEncodeError. Fix: call write_text(content, encoding="utf-8").
+
+10. Line 59. print does not handle BrokenPipeError. If the output is piped to a program that closes early (for example head), the process exits with a traceback. Fix: catch BrokenPipeError and exit without a traceback.
+
+11. Line 53. The annotation "str | None" is evaluated when the function is defined. On Python 3.9 or older, this raises TypeError at import. Fix: add "from __future__ import annotations", or use Optional[str].
+
+12. Line 55. Any value other than the exact string "json" produces text output. A value such as "JSON" or "jsn" gives text with no error. Fix: normalize with fmt.lower() and raise ValueError for unknown values.
+
+13. Lines 25 and 27. Record IDs and failure messages go into the text output without escaping. A message that contains a newline breaks the indented layout. Fix: replace newline characters with spaces before formatting.
