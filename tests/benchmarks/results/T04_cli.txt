@@ -1,0 +1,56 @@
+Purpose
+cli.py is the command-line entry point of the small_project sample pipeline. It takes a data file path and optional lists of transformation steps and validation rules, then runs four stages in order: load the file (data_loader.load), transform the records (transformer.apply), validate the records (validator.validate), and write the report (reporter.write). It is the only module in the pipeline that parses arguments, chooses exit codes, and prints error messages for the user. The other four modules are imported by name and called as plain functions.
+
+Typical invocation: python cli.py FILE [--steps STEP ...] [--rules RULE ...] [--format text|json] [--output FILE]
+
+Key functions
+main()
+Signature: main() -> None. The function takes no parameters and reads sys.argv through argparse.
+
+Inputs (from the command line):
+- file (positional, required): path to a .csv or .json file.
+- --steps (list, default DEFAULT_STEPS = ["strip_whitespace", "normalize_value", "add_flag"], line 16).
+- --rules (list, default DEFAULT_RULES = ["has_id", "value_non_negative", "name_not_empty"], line 17).
+- --format (one of text or json, default text).
+- --output (path, default None, which means stdout).
+
+Behavior (lines 51-61):
+1. Parses arguments (line 51). argparse prints its own usage errors and exits with status 2.
+2. Inside one try block (lines 53-58), calls load(args.file), then apply(records, args.steps), then validate(records, args.rules), then write(report, fmt=args.format, dest=args.output). After write returns, it calls sys.exit(0) if report.ok is True, otherwise sys.exit(1).
+3. The except clause (lines 59-61) catches ValueError and FileNotFoundError, prints "error: <message>" to stderr, and exits with status 2.
+
+Output: no return value. Every path ends in sys.exit, so main() never returns normally. The report goes to stdout (or to the --output file) through reporter.write. Exit status is 0 when every record passed, 1 when at least one record failed a rule, and 2 when input, step names, rule names, or the file path are invalid.
+
+Module-level code (lines 64-65): main() runs only when the file is executed directly. Importing cli.py does not run the pipeline.
+
+The module defines no classes and no other public functions.
+
+Design choices
+Argument parsing uses argparse with defaults that are module constants (DEFAULT_STEPS, DEFAULT_RULES). The help strings build their default text from the same constants (lines 30 and 37), so help text and actual defaults cannot drift apart.
+
+The control flow is one straight line with one try block. Each stage gets the output of the previous stage, with no intermediate checks. Exit status is decided in one place (line 58), after the report is written. A failed validation still produces the full report and then exits 1, so a caller that reads stdout gets the details even when the exit status is non-zero.
+
+Error handling is narrow. Only ValueError and FileNotFoundError are caught. The sibling modules raise ValueError for bad input: data_loader.load raises it for unsupported extensions and non-array JSON (data_loader.py lines 45 and 34), transformer.apply for unknown step names (transformer.py line 51), and validator.validate for unknown rule names (validator.py line 72). Those cases map to exit status 2 with a one-line message. Other exceptions are not handled here.
+
+Coupling. cli.py depends on four things in the other modules:
+- The function names load, apply, validate, and write.
+- The keyword names fmt and dest on write (reporter.py line 53).
+- The attribute report.ok on the object returned by validate. In validator.py, ok is a property that returns True when failed == 0 (validator.py lines 62-64).
+- The module names themselves. The imports on lines 10-13 are bare names such as "from data_loader import load", so the directory that holds the modules must be on sys.path. Running the file from its own directory works. Importing the package from elsewhere, or running it as a package member, fails with ImportError before main() runs.
+
+Data flows as plain Python lists of dicts. apply returns a new list (transformer.py line 52 copies the input), so the list that load returned is not changed in place.
+
+Risks and missing error handling
+1. Lines 57 and 59-61. write() can raise PermissionError or IsADirectoryError when --output points to a path that cannot be written. Those are OSError subclasses but not FileNotFoundError, so the except clause does not catch them. Failure scenario: python cli.py data.csv --output /root/report.txt as a non-root user prints a Python traceback and exits with status 1, the same status used for a failed validation. Suggested fix: catch OSError in the except tuple (it includes FileNotFoundError) and exit 2.
+
+2. Lines 54-56. Only ValueError and FileNotFoundError are caught, so KeyError, TypeError, AttributeError, and similar exceptions from the other modules propagate as tracebacks. Failure scenario: a .json file that contains [1, 2] passes load_json, because load_json checks only that the top level is a list (data_loader.py line 34). validate then calls record.get on an integer and raises AttributeError (validator.py, inside the loop over records). The user sees a traceback and exit status 1. Suggested fix: validate each record is a dict in load_json, and catch the remaining expected exception types at the top level.
+
+3. Line 58 and the Python default for uncaught errors. Exit status 1 means a failed validation, and an uncaught exception also exits 1. A caller in a script or CI job cannot tell a bad record from a crash. Failure scenario: a CI check treats exit 1 as "data is invalid" when the real cause is a crash in a rule function. Suggested fix: use a distinct status for internal errors, such as 3, in a top-level except Exception handler.
+
+4. Lines 27 and 34 (nargs="*" on --steps and --rules). The option takes every value that follows it, so a positional file placed after the option is read as a step or rule name. Failure scenario: python cli.py --steps strip_whitespace data.csv treats data.csv as a step name. argparse then reports the missing file argument and exits 2, which is confusing because the file argument was given. Suggested fix: use nargs="+" with the file argument first in the help text, or document that the file must come before the options.
+
+5. Lines 27-28 and 34-35. An empty --steps or --rules list is accepted silently, and the two lists have opposite effects. An empty steps list applies no transformation (apply loops over an empty list). An empty rules list makes validate use every rule, because validator.py line 68 uses "rules or list(_RULES)". Failure scenario: a user runs python cli.py data.csv --rules and expects no checks. The report instead shows every rule run. Suggested fix: use nargs="+" so an empty value is a parse error, and say in the help text that an empty list is not allowed.
+
+6. Line 58 with empty input. An empty JSON array passes load_json, and validate with zero records returns total 0 and failed 0, so ok is True and the exit status is 0 with a PASSED report. Failure scenario: an upstream job writes [] because its source query returned no rows, and the check reports success. Suggested fix: exit 1 (or print a warning) when report.total is 0.
+
+7. Lines 57-58 and the --output option. When --output is set, the report goes only to the file and stdout stays empty. The exit status is the only signal on stdout-less runs, and it is not written to the file. Failure scenario: a script runs with --output and reads only stdout, so it sees no output and no error. Suggested fix: print a one-line summary to stderr (for example, the pass and fail counts) whenever --output is used.
