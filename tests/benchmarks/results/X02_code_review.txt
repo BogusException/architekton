@@ -3,65 +3,65 @@ X02 code review: tests/benchmarks/sample_jobs/small_project/
 === cli.py ===
 Does well:
 - Each pipeline stage is one call (lines 54-57), so the flow reads top to bottom and each stage can be tested alone.
-- Validation failure and input errors use different exit codes: line 58 exits 1 when report.ok is False, and line 61 exits 2 for ValueError or FileNotFoundError.
-- Defaults live in module constants (lines 16-17) and the help strings reuse them (lines 30, 37), so the documented defaults match the real ones.
+- Input errors and validation failures use different exit codes: line 58 exits 1 when report.ok is False, line 61 exits 2 for ValueError or FileNotFoundError.
+- Defaults live in module constants (lines 16-17) and the help strings reuse them, so documented defaults match real ones.
 Could break:
-- main, line 59: a locked input such as `cli.py data/locked.csv` raises PermissionError, and a directory passed as the file raises IsADirectoryError. Neither is caught, so Python prints a traceback and exits 1, the same code as a validation failure on line 58.
-- main, lines 27-28 (--steps with nargs="*"): `cli.py --steps strip_whitespace data.csv` makes argparse consume data.csv as a step, so the required positional file is missing and argparse exits 2 with a usage error.
-- main, lines 27 and 55: `cli.py data.csv --steps` (no values) sets args.steps to [], and line 55 runs apply with no steps and no error, so the transform is skipped silently.
-- main, lines 55 and 59: `cli.py data.csv --steps bogus_step` depends on transformer.apply. If it raises anything other than ValueError for an unknown step, the exception escapes line 59 and produces a traceback.
+- main, line 59: a file without read permission raises PermissionError, and a directory passed as the file raises IsADirectoryError. Neither is caught, so Python prints a traceback and exits 1, the same code as a validation failure.
+- main, lines 26-28: `cli.py --steps strip_whitespace data.csv` makes argparse consume data.csv as a step (nargs="*"), so the positional file is missing and argparse exits 2 with a usage error.
+- main, lines 27 and 55: `--steps` with no values gives [] and the transform stage is skipped silently.
+- Lines 10-13 use bare imports, so the script only runs when its own directory is on sys.path (for example `python cli.py`, not `python -m small_project.cli`).
 Improvement:
-- Change line 59 to `except (OSError, ValueError) as err:` so every file and input error prints a clean message and exits 2.
+- Change line 59 to `except (OSError, ValueError) as err:` so every file error prints a clean message and exits 2.
 
 === data_loader.py ===
 Does well:
-- load_csv checks the header for REQUIRED_COLUMNS (lines 20-23) before it reads any row, and the error lists the missing names sorted.
-- load_csv opens the file with newline="" (line 18), so quoted fields with embedded newlines parse correctly.
+- load_csv checks the header against REQUIRED_COLUMNS (lines 20-23) before it reads any row, and the error lists the missing names sorted.
+- load_csv opens with newline="" (line 16), so quoted fields with embedded newlines parse correctly.
 - load (lines 38-45) keeps the format choice in one place and raises ValueError for unknown suffixes.
 Could break:
-- load_json (lines 29-35): a file containing [1, 2] passes the isinstance check at line 33 and returns ints typed as list[dict]. Records without "id" or "value" are never checked, because only load_csv validates columns.
-- load_csv (lines 24-25): a row with fewer fields than the header, such as "1,foo" under a four-column header, yields None for the missing keys with no error. Extra fields are stored under the key None.
-- load_csv (lines 18, 20-21): a UTF-8 file with a byte order mark, such as one saved from Excel, makes the first header "﻿id". Line 21 then reports "missing ['id']" although the column exists. No encoding is set at line 18.
-- load (line 41): a path ending in "DATA.CSV" fails at line 45 with "Unsupported file type: .CSV", because the suffix comparison at line 41 is case-sensitive.
+- load_csv, line 16: open() has no encoding. A UTF-8 file with a BOM makes the first header "﻿id", so the file is rejected as missing "id" although it looks correct. A non-UTF-8 locale can also raise UnicodeDecodeError, which cli.py does not catch (UnicodeDecodeError is a ValueError subclass, so it is caught, but the message is unhelpful).
+- load_json, lines 34-35: only the container type is checked. `[1, 2]` or `[null]` passes, and later stages crash with AttributeError in strip_whitespace (transformer.py line 37) or in validate. The CSV path enforces columns, the JSON path does not.
+- load, line 40: `p.suffix` is case-sensitive, so DATA.CSV is rejected as unsupported.
+- load_csv, line 25: a short row gives None for missing columns, and a long row stores extras under the key None. Neither is detected.
 Improvement:
-- In load_json, after line 34, check that each item is a dict and contains REQUIRED_COLUMNS, and raise ValueError with the record index. This matches the module docstring and the CSV path.
+- In load_json, require every item to be a dict and apply the same REQUIRED_COLUMNS check, preferably through one shared helper used by both loaders.
 
 === reporter.py ===
 Does well:
-- Text and JSON output both read from the same ValidationReport, and write() (line 55) selects one renderer, so the two formats cannot disagree on content.
-- to_json() (lines 36-49) builds an explicit dict, so the JSON keys are fixed and do not expose internal attributes of the report.
-- _text_lines() (line 20) prints the Failures block only when report.ok is False, so passing reports stay short.
+- _text_lines builds a list and to_text joins it, so text output is easy to test without capturing stdout.
+- to_json uses an explicit key mapping, so the JSON schema is stable even if ValidationReport gains fields.
+- write has one exit point for both formats and both destinations.
 Could break:
-- to_json(), line 50: a record_id that json.dumps cannot serialize (for example a datetime or bytes value) raises TypeError. Nothing catches it in to_json() or write(), so the caller gets a traceback and no output.
-- write(), line 55: any fmt other than "json" silently produces text. write(report, fmt="JSON") or fmt="jsn" returns text output with no error.
-- write(), line 57: Path(dest).write_text(content) has no encoding argument. On a host whose default encoding is not UTF-8 (for example Windows cp1252), a failure message containing a non-ASCII character such as "é" raises UnicodeEncodeError.
-- write(), line 57: if the parent directory of dest does not exist, write_text raises FileNotFoundError. The module never creates directories.
+- write, line 57: Path.write_text has no encoding and adds no trailing newline, while the stdout branch (print) adds one. File and stdout output differ by one byte.
+- write, line 57: a missing parent directory raises FileNotFoundError (caught by cli.py), but a read-only target raises PermissionError, which is not caught and gives a traceback.
+- write, line 55: an unknown fmt such as "xml" silently falls back to text. cli.py restricts the choices, but any other caller gets no error.
+- The text report lists every failing record. A large file with many failures prints an unbounded report.
 Improvement:
-- In write() (line 55), accept only "text" or "json" and raise ValueError for any other fmt, so a typo fails at the call site instead of printing text.
+- Validate fmt (raise ValueError for unknown values) and write with encoding="utf-8" and a trailing newline so file and stdout output match.
 
 === transformer.py ===
 Does well:
-- apply (lines 49-51) checks every step name before touching any record, so an unknown name fails with no partial work.
-- normalize_value (lines 25-29) copies the record and falls back to 0.0 on TypeError or ValueError, so a bad value does not crash the step.
-- strip_whitespace (line 36) and the dict copies at lines 25 and 42 leave the caller's records unmodified.
+- The @register decorator keeps the step list in one place. A new step is one decorated function, and apply needs no change.
+- Every transform copies the record (dict(record) or a new dict comprehension), so input records are never mutated.
+- apply checks all step names before it touches any data (lines 49-51), so a typo fails fast and not halfway through.
 Could break:
-- add_flag, line 43: {"value": "n/a"} raises ValueError and {"value": None} raises TypeError. Neither is caught, so apply (line 54) aborts the whole batch.
-- normalize_value, line 27: {"value": "inf"} converts to infinity and passes. add_flag then sets flagged True. {"value": "nan"} converts to NaN, and add_flag (line 43) sets flagged False because NaN > 100 is False, so bad data is marked clean.
-- register, line 17: a second @register("add_flag") silently replaces the first with no error or warning.
+- add_flag, line 44: float(out.get("value", 0)) has no try/except, unlike normalize_value. Without normalize_value first, value "" or "abc" raises ValueError, and value None (JSON null) raises TypeError. TypeError is not caught by cli.py, so the user sees a traceback.
+- add_flag with value "nan": float("nan") > 100 is False, so NaN is never flagged. normalize_value also passes NaN through, and value_non_negative then passes it (nan < 0 is False).
+- strip_whitespace, line 37: record.items() fails with AttributeError when a record is not a dict (see data_loader.load_json).
+- Step order matters but is not documented or checked. `--steps add_flag normalize_value` behaves differently from the default order.
 Improvement:
-- In add_flag (lines 42-43), wrap the float() call in the same try/except (TypeError, ValueError) used at lines 26-29 and set flagged to False on failure, so add_flag accepts the same inputs normalize_value does.
+- Make add_flag reuse the same safe float conversion as normalize_value (one private helper), so the two steps handle bad values the same way.
 
 === validator.py ===
 Does well:
-- Rules register through the @rule decorator (lines 16-21), so a new check is one function and needs no change to validate().
-- validate() rejects unknown rule names before it processes any record (lines 70-72).
-- value_non_negative() catches conversion errors and includes the received value in the message (lines 36-37).
-
+- Rules are small functions that return None or a message, so each one is trivial to unit test.
+- validate checks rule names up front (lines 69-71) and prefixes each failure with the rule name, so the report shows which rule failed.
+- ValidationReport.ok is derived from failed, so the flag cannot disagree with the counts.
 Could break:
-- validate(), line 69: rules=[] is falsy, so `rules or list(_RULES)` runs every rule. validate(records, rules=[]) runs all rules instead of none.
-- name_not_empty(), line 43: {"name": None} passes, because str(None) is "None", which is not empty after strip().
-- value_non_negative(), line 34: {"value": "nan"} or float("nan") passes, because nan < 0 is False. NaN values are accepted without a message.
-- has_id(), line 26: a non-dict item in records, such as the string "abc", raises AttributeError from record.get. validate() does not catch it, so the whole batch fails.
-
+- validate, line 68: `rules or list(_RULES)` treats an empty list as "all rules". `--rules` with no values runs every rule, while `--steps` with no values runs none. The two flags behave in opposite ways.
+- has_id, line 24: `not record.get("id")` rejects the integer 0 and any other falsy id. A JSON file with "id": 0 fails with "missing or empty".
+- validate, line 76: a non-dict record raises AttributeError on record.get. Records from load_json are not guaranteed to be dicts.
+- Duplicate ids are not detected, and record_id is a plain str, so two records with the same id give ambiguous failure lines in the report.
+- An empty input list gives total=0, failed=0, ok=True, so an empty file reports PASSED.
 Improvement:
-- Change line 69 to `active_rules = list(_RULES) if rules is None else rules`, so an empty list means no rules.
+- Use `rules if rules is not None else list(_RULES)` and change has_id to test `record.get("id") in (None, "")`, so an explicit empty list and an id of 0 are both handled correctly.
