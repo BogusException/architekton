@@ -1,0 +1,78 @@
+Purpose
+
+data_loader.py reads one data file from disk and returns its records as plain Python objects. It supports CSV and JSON. For CSV, it checks that the four required columns (id, name, value, timestamp) exist in the header row. For JSON, it only checks that the top-level value is an array. The module docstring says validation runs before return and that a ValueError with a readable message is raised on failure.
+
+The module is the input stage of the small_project pipeline. It is the only file in this review that touches the file system for input. The callers (cli.py and the other modules) were not read for this summary, so the exact call sites are not confirmed here.
+
+
+Key functions
+
+REQUIRED_COLUMNS (line 12)
+A module-level set: {"id", "name", "value", "timestamp"}. It is a constant, not a function. It is used only by load_csv.
+
+load_csv(path: str) -> list[dict] (lines 15-26)
+Input: a path to a CSV file.
+Output: a list with one dict per data row. Keys come from the header row. Values are always str.
+Behavior: opens the file with newline="" and wraps it in csv.DictReader. It builds a set from reader.fieldnames (an empty set if the file has no header). If any required column is missing, it raises ValueError with the sorted list of missing names. Otherwise it reads every row into memory and returns the list. Rows are copied with dict(row).
+
+load_json(path: str) -> list[dict] (lines 29-35)
+Input: a path to a JSON file.
+Output: the parsed JSON value, returned as is when it is a list.
+Behavior: opens the file, calls json.load, and checks that the result is a list. If it is not a list, it raises ValueError with the type name, for example "Expected a JSON array, got dict". The elements of the list are not checked. They can be any JSON type, and the REQUIRED_COLUMNS check is not applied.
+
+load(path: str) -> list[dict] (lines 38-45)
+Input: a path to a file.
+Output: the result of load_csv or load_json.
+Behavior: takes the suffix from pathlib.Path. An exact ".csv" suffix calls load_csv. An exact ".json" suffix calls load_json. Any other suffix, including an empty one, raises ValueError("Unsupported file type: <suffix>"). The match is case-sensitive.
+
+
+Design choices
+
+Dispatch is by file extension only (lines 41-45). The content of the file is never sniffed. A CSV file named data.json is sent to the JSON parser and fails there. A CSV file named data.CSV is rejected.
+
+Validation is asymmetric. CSV gets a header check against REQUIRED_COLUMNS (lines 20-23). JSON gets only a type check on the top-level value (lines 33-34). The module docstring describes column validation for both formats, but the code does it only for CSV.
+
+Each function reads the whole file in one pass and returns a list. CSV rows are collected in a loop (lines 24-25). JSON is parsed in one call (line 32). Memory use grows with file size in both cases.
+
+CSV values are always strings. The code does not convert "value" to a number or "timestamp" to a date. JSON values keep their JSON types (number, string, null, and so on). The two formats therefore return different value types for the same field.
+
+The return type is list[dict] in every signature, but load_json can return a list whose items are not dicts (lines 33-35). The annotation does not match what the code can return.
+
+File handling uses the built-in open() with no encoding argument (lines 18 and 31). The result depends on the locale of the process.
+
+Errors come in two kinds. Validation problems raise ValueError with a message meant for people (lines 23, 34, 45). File problems and JSON syntax errors are not caught, so they reach the caller as their own exception types. json.JSONDecodeError is a subclass of ValueError, so a caller that catches ValueError also catches malformed JSON. OSError (for example, a missing file) is not a ValueError.
+
+The module has no classes and no third-party imports. It uses only csv, json, and pathlib.
+
+
+Risks and missing error handling
+
+1. Missing or unreadable file (lines 18, 31). open() raises FileNotFoundError or PermissionError. The function does not catch these or add the path to the message. Suggested fix: catch OSError in load() and re-raise with the file path, or document that OSError is raised.
+
+2. Non-UTF-8 input (lines 18, 31). The file is opened with the locale default encoding and no error handler. A Latin-1 or Windows-1252 CSV raises UnicodeDecodeError in the middle of the read, and the error does not say which file failed. Suggested fix: pass encoding="utf-8" (or make it a parameter) and catch UnicodeDecodeError to raise ValueError with the file name.
+
+3. UTF-8 byte order mark in CSV (lines 18-21). A file saved by some spreadsheet tools starts with a BOM. The first header then reads "﻿id", not "id". The check at line 21 reports "missing required columns: ['id']" even though the column is there. Suggested fix: open with encoding="utf-8-sig".
+
+4. Empty CSV file (lines 19-23). reader.fieldnames is None, so headers is an empty set. The error lists all four required columns as missing, which is correct but gives no hint that the file is empty. Suggested fix: add a separate message for "no header row found".
+
+5. Short or long CSV rows (lines 24-25). csv.DictReader fills missing fields with None and stores extra fields under the key None. The loop keeps both without a check. A row with too few fields gives "value": None, and a row with too many fields adds a None key. Both pass through silently. Suggested fix: check len(row) against len(reader.fieldnames) and raise ValueError with the line number.
+
+6. Empty or blank required values (lines 24-25). A row like "1,,5,2024-01-01" passes. The id and name are empty strings, and the code does not report them. Suggested fix: reject or count rows where any REQUIRED_COLUMNS value is empty or None.
+
+7. Duplicate CSV headers (lines 19-20). The header set removes duplicates, and DictReader keeps the last column with a given name. A file with two "value" columns loses the first one without a warning. Suggested fix: compare len(reader.fieldnames) with len(set(reader.fieldnames)) and raise ValueError on mismatch.
+
+8. JSON records not checked for required keys (lines 33-35). The function returns any list. A file with [1, 2, 3] or [{"name": "x"}] passes as valid. The docstring of the module implies that required columns are checked. Suggested fix: apply the same REQUIRED_COLUMNS check to each element, requiring it to be a dict with those keys.
+
+9. JSON file with a top-level object (lines 33-34). The error message is clear ("Expected a JSON array, got dict"), but a common layout such as {"records": [...]} is rejected without a hint. Suggested fix: optional, add a hint in the message, or accept a configurable key.
+
+10. Malformed JSON (line 32). json.load raises json.JSONDecodeError with line and column numbers, but the message does not include the file path. Suggested fix: wrap the call and re-raise ValueError with the path and the decoder message.
+
+11. Non-finite numbers in JSON (line 32). json.load accepts NaN, Infinity, and -Infinity by default. These values are not valid JSON, and they can cause problems in later numeric steps. Suggested fix: pass parse_constant to raise on these tokens.
+
+12. Large files (lines 17-26 and 32). Both paths hold every row in memory before returning. A multi-gigabyte CSV or JSON file can exhaust memory. Suggested fix: for CSV, yield rows from a generator. For JSON, use an incremental parser or document the size limit.
+
+13. Case-sensitive extension check (lines 41-45). "DATA.CSV" and "Data.Json" raise "Unsupported file type: .CSV". This is a usability problem on case-insensitive file systems that create uppercase names. Suggested fix: compare p.suffix.lower() against ".csv" and ".json".
+
+14. Path with no extension or a dotted directory name (lines 40-45). A file named "input" has an empty suffix, and the message reads "Unsupported file type: " with nothing after the colon. Suggested fix: include the full path in the message and handle the empty suffix as its own case.
+
+15. Annotation and input type (lines 15, 29, 38). The parameter is annotated as str, but Path(path) and open() also accept os.PathLike objects. Callers that pass Path objects work, but the annotation does not say so. Suggested fix: annotate as str | os.PathLike[str] or pathlib.Path.
