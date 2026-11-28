@@ -24,6 +24,7 @@ secrets/
 
 # Benchmark run output (local only -- share manifest.json and *.json files manually)
 tests/benchmarks/results/*/
+!tests/benchmarks/results/20261127_182307/
 
 # Logs & runtime
 *.log
