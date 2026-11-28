@@ -1,0 +1,90 @@
+Purpose
+
+The module applies an ordered chain of named transformations to a list of record dicts. A transformation is a function that takes one record dict and returns a dict. Transformations register themselves in the module-level dict _REGISTRY (line 11) through the @register decorator. apply() looks up each requested name, runs every record through each step in turn, and returns a new list of dicts. apply() does not modify the caller's list. None of the built-in steps modify the caller's dicts either.
+
+Three built-in transformations are registered:
+normalize_value (line 22) casts the "value" field to float.
+strip_whitespace (line 33) strips leading and trailing whitespace from string fields.
+add_flag (line 39) adds a boolean "flagged" field that is True when "value" is greater than 100.
+
+
+Key functions
+
+register(name: str), line 14
+Input: name, a string key for the registry.
+Returns: the inner decorator function.
+Side effects: none when called. The decorator it returns writes to _REGISTRY when it is applied.
+Mutation: does not touch any record.
+
+decorator(fn), line 16 (nested inside register)
+Input: fn, a callable that takes a dict and returns a dict.
+Returns: fn, unchanged.
+Side effects: sets _REGISTRY[name] = fn at line 17. Any earlier entry with the same name is overwritten.
+Mutation: changes the module-level registry. Does not change any record.
+
+normalize_value(record: dict) -> dict, line 23
+Input: one record dict. Reads "value" with a default of 0.
+Returns: a new dict. Its "value" is a float. A missing key becomes 0.0 and is added to the output. A value that cannot be converted becomes 0.0.
+Side effects: none.
+Mutation: returns new data. The input is copied at line 25 (dict(record)) and only the copy is written to.
+
+strip_whitespace(record: dict) -> dict, line 34
+Input: one record dict.
+Returns: a new dict built by a dict comprehension (line 36). String values are stripped. All other values are passed through by reference. Keys are not changed. Nested dicts and lists are not examined.
+Side effects: none.
+Mutation: returns new data. The input is not modified.
+
+add_flag(record: dict) -> dict, line 40
+Input: one record dict. Reads "value" with a default of 0 and converts it with float() at line 43.
+Returns: a new dict with "flagged" set to True when the float value is greater than 100, otherwise False.
+Side effects: none.
+Mutation: returns new data. The input is copied at line 42 and only the copy is written to.
+
+apply(records: list[dict], steps: list[str]) -> list[dict], line 47
+Input: a list of record dicts and a list of registered step names.
+Returns: a new list. Each record has been passed through each step in the order given.
+Validation: all names are checked against _REGISTRY before any work starts (lines 49-51). Unknown names raise ValueError with the list of unknown names.
+Side effects: none beyond the calls to the step functions.
+Mutation: apply() does not modify its inputs. It makes a shallow copy of the list at line 52. If steps is empty, the returned list holds the same dict objects as the input, so the output shares those dicts with the caller.
+
+
+Design choices
+
+Each transformation is a plain function from dict to dict. Each built-in function copies its input before it changes anything. This keeps the steps free of side effects on the caller's data and lets each step be tested alone. The cost is one dict allocation per record per step.
+
+Composition is eager. Each step builds a complete intermediate list at line 54 before the next step runs. The code is easy to read, and an error points to one step. The cost is that two full lists can exist at the same time, and no output is returned until every step has finished. A generator chain would use less intermediate memory, but errors would appear later, during iteration.
+
+Unknown names are rejected before any record is processed (lines 49-51). The run fails early and does no partial work.
+
+The registry is a module-level global (line 11) that is filled at import time. Registration order and name collisions depend on import order. The module has no unregister function and no duplicate-name check. The code is simple, but any test that registers a name changes state that other tests can see.
+
+Error handling differs between functions. normalize_value replaces bad input with 0.0 (lines 27-29), so bad data passes without a message. add_flag and strip_whitespace have no error handling. add_flag assumes that "value" is numeric, and normalize_value makes it numeric, but nothing in apply() enforces that order.
+
+The type hints use built-in generic syntax (dict[str, ...] at line 11, list[dict] at line 47). Python evaluates these when the module loads, so the module needs Python 3.9 or later.
+
+
+Risks and missing error handling
+
+Line 17, decorator (inside register): A second registration with the same name replaces the first without a warning. A duplicate name in a new file would silently replace a working step.
+
+Line 14, register: The name argument is not checked. A non-string key such as None is stored as is. The problem shows up later, when apply() rejects the name as unknown.
+
+Line 27, normalize_value: A missing "value" key is not reported. The key is added with the value 0.0, so a record with no value looks the same as a record whose value is 0.0.
+
+Lines 27-29, normalize_value: TypeError and ValueError are caught at line 28 and replaced with 0.0. Nothing is logged, counted, or flagged. Afterward, bad input cannot be told apart from a real zero.
+
+Lines 27 and 43, normalize_value and add_flag: float() accepts "nan", "inf", and "-inf" without an error. A NaN value passes through normalize_value. In add_flag, NaN > 100 is False, so the record gets "flagged": False with no sign of a problem. Infinity also passes through unchanged. float(True) returns 1.0, so a boolean in the value field becomes 1.0 without a message.
+
+Line 43, add_flag: No try/except. A non-numeric string such as "abc" raises ValueError. A None value raises TypeError. Both errors leave apply() at line 54 and end the run. The message does not name the record or the step.
+
+Lines 25, 36, and 42, normalize_value, strip_whitespace, and add_flag: The record argument is not type-checked. If record is None, dict(None) raises TypeError at lines 25 and 42, and None.items() raises AttributeError at line 36. None of these errors identify the record.
+
+Line 54, apply: An exception raised by any step is not caught. Output from records that were already processed is discarded, because the function never returns it. The error does not include a record index or a step name.
+
+Lines 49-51, apply: The name check is "s not in _REGISTRY". If an element of steps is unhashable, such as a list, the membership test raises TypeError instead of the ValueError at line 51. If steps is None, the loop at line 49 raises TypeError.
+
+Line 16 and line 54, register and apply: Nothing stops a registered step from changing its input dict in place. apply() does not copy the records before it calls each step, so such a step would change the caller's data. The three built-in steps do not do this, but register accepts any callable.
+
+Line 52, apply: Empty input is handled. apply([], steps) returns [] without an error. Empty steps returns a list that shares its dict objects with the caller. This is not a bug in the code, but a caller that edits the result also edits the input dicts.
+
+Division by zero: No division operation appears in the module, so this risk does not apply.
