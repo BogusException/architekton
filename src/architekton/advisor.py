@@ -71,7 +71,10 @@ def run_session_end(args):
 def run_report(args):
     cfg = config.load()
     pricing = cfg.get("pricing")
-    print(journal.report(days=args.days, pricing=pricing))
+    if getattr(args, "savings", False):
+        print(journal.savings_report(days=args.days, pricing=pricing))
+    else:
+        print(journal.report(days=args.days, pricing=pricing))
     return 0
 
 
@@ -260,6 +263,7 @@ def build_parser():
 
     rep = commands.add_parser("report", help="print spend report from the cost journal")
     rep.add_argument("--days", type=int, default=None, metavar="N", help="limit to last N days (default: all time)")
+    rep.add_argument("--savings", action="store_true", help="show savings vs baseline model instead of model mix report")
     rep.set_defaults(run=run_report)
 
     job = commands.add_parser(
