@@ -1,0 +1,70 @@
+T01 data_loader.py summary
+Source: tests/benchmarks/sample_jobs/small_project/data_loader.py (46 lines, read in full)
+Callers checked: cli.py (line 10 imports load, line 54 calls it, lines 59-61 handle errors)
+
+PURPOSE
+
+data_loader.py reads one CSV or JSON file from disk and returns its records as a list of dicts. It is the input stage of the small_project pipeline. For CSV files it checks that the header row contains the four required columns: id, name, value, timestamp. For JSON files it checks only that the top-level value is an array. Validation failures raise ValueError with a readable message.
+
+cli.py passes the path from the command line to load() at line 54. cli.py catches ValueError and FileNotFoundError at line 59, prints "error: <message>" to stderr, and exits with code 2. Any other exception is not caught and ends the program with a traceback.
+
+KEY FUNCTIONS
+
+1. load(path: str) -> list[dict], lines 38-45
+   Takes the file extension from Path(path).suffix. A ".csv" suffix goes to load_csv. A ".json" suffix goes to load_json. Any other suffix raises ValueError("Unsupported file type: <suffix>"). The match is case-sensitive.
+
+2. load_csv(path: str) -> list[dict], lines 15-26
+   Opens the file with newline="" and wraps it in csv.DictReader. Reads the header and builds a set from it. Computes the missing required columns as REQUIRED_COLUMNS minus the header set. If any are missing, raises ValueError("CSV missing required columns: [...]") with the names sorted. Otherwise reads every data row into a list of dicts and returns that list. All values are strings. Rows are not checked for field count or content.
+
+3. load_json(path: str) -> list[dict], lines 29-35
+   Parses the whole file with json.load. If the result is not a list, raises ValueError("Expected a JSON array, got <type name>"). Otherwise returns the parsed list unchanged. Elements are not checked for type or for the required fields.
+
+Module constant: REQUIRED_COLUMNS, line 12, a set of the four required CSV column names.
+
+DESIGN CHOICES
+
+Format is picked from the file extension (line 41, line 43), not from the file content. A file with the wrong extension fails with an error, which is a clear result.
+
+Every failure in this module is a ValueError. The caller therefore needs to handle only one exception type for bad input. This works only when no other exception type escapes the module (see the risks below).
+
+Loading is eager. The whole file is read into memory and returned as one list. This is simple and fits small benchmark inputs. It does not stream.
+
+Structure checks are asymmetric. CSV files must have the four columns. JSON files must have a top-level array and nothing more.
+
+CSV values stay as strings. JSON values keep their JSON types (numbers, strings, null, nested objects). A downstream stage gets different value types for the same field depending on the input format.
+
+Only the standard library is used (csv, json, pathlib), which matches the project rule for the hot path.
+
+The csv file is opened with newline="", as the csv module documentation recommends. No encoding is given to open() at line 18 or line 31.
+
+RISKS AND MISSING ERROR HANDLING
+
+1. Lines 18 and 31, no encoding argument. Python uses the locale encoding. On a Windows host with a cp1252 locale, a UTF-8 file with non-ASCII names is decoded without error but with wrong characters (for example "José" becomes "JosÃ©"). A file with bytes that cp1252 cannot decode raises UnicodeDecodeError. That error is a subclass of ValueError, so cli.py prints it, but the message does not name the file or suggest an encoding.
+
+2. Line 20, UTF-8 byte order mark (BOM). Excel and some export tools write "CSV UTF-8" files with a BOM. Read with the default UTF-8 codec, the first header becomes "﻿id" instead of "id". Line 21 then reports "CSV missing required columns: ['id']" for a file that has an id column. The fix is encoding="utf-8-sig". Likelihood is high for files that come from spreadsheet tools.
+
+3. Line 20 and line 21, header matching is exact. A header such as "ID,Name,Value,Timestamp" or " id" (leading space) fails. The error then lists all four or one column as missing, and the user cannot see why, because the column looks present. No strip or case folding is done.
+
+4. Lines 24-25, no check of row length. csv.DictReader fills a short row with None for the missing fields. A row "7,widget,12" with a four-column header returns {"timestamp": None} and no error. A row with extra fields stores them under the key None. If a later stage calls string or arithmetic functions on the None value, it raises TypeError. cli.py does not catch TypeError (line 59), so the user gets a traceback and exit code 1, not the documented exit code 2.
+
+5. Lines 32-35, JSON element types are not checked. The input "[1, \"a\", null]" passes the list check at line 33 and is returned as a list of int, str, and None, although the annotation says list[dict]. If the transformer does record["id"], it raises TypeError: 'int' object is not subscriptable. This is not caught by cli.py, so the result is a traceback and exit code 1.
+
+6. Lines 29-35, JSON records are not checked for required fields. The input [{"name": "a"}] loads without error, but the CSV path rejects the same data at line 21. The same data is accepted or rejected depending on the file format. A missing field surfaces later as a KeyError (not caught by cli.py) or passes without notice.
+
+7. Lines 18 and 31, OSError other than FileNotFoundError is not handled. A directory path (python cli.py ./data/) raises IsADirectoryError at open(). A file without read permission raises PermissionError. Neither is a ValueError or FileNotFoundError, so cli.py does not catch them. The user gets a traceback and exit code 1, not 2.
+
+8. Lines 41-44, case-sensitive suffix match. A file named Sales.CSV or DATA.JSON (common with Windows exports) raises ValueError("Unsupported file type: .CSV") at line 45. The file is valid but is rejected. The message gives no hint that case is the cause.
+
+9. Line 45, empty suffix. A file named "data" with no extension gives the message "Unsupported file type: " with nothing after the colon. The message is not useful, but it is not wrong.
+
+10. Line 32, invalid JSON error has no file name. json.load raises json.JSONDecodeError, a ValueError subclass. cli.py prints something like "error: Expecting ',' delimiter: line 3 column 5 (char 41)" without the path. This module does not add the path. With one file per run the impact is small. It becomes a problem in any batch run that loads several files.
+
+11. Line 32, deep nesting. A JSON file with thousands of nested brackets, such as "[[[[...]]]]" at depth 100000, makes json.load raise RecursionError. That is not a ValueError, so cli.py does not catch it, and the user gets a traceback.
+
+12. Lines 25 and 32, no size limit. load_csv appends every row to a list. load_json parses the whole file at once. A multi-gigabyte input can exhaust memory and raise MemoryError, or push the host into swapping. Nothing in this module or in cli.py warns about input size.
+
+13. Lines 24-26 and 33-35, empty input is accepted. A CSV with only a header returns []. A JSON file containing [] returns []. Both succeed silently. Whether that is an error depends on the validator, which this module does not check. cli.py has no minimum record count check either.
+
+14. Lines 18-26 and 31-35, values are not checked. The module checks column names but not the content of "value" or "timestamp". A value of "abc" or a timestamp of "yesterday" loads without error. The module docstring says it validates required columns, which it does, so this is a scope choice. Any type or format check must happen later.
+
+15. Missing error handling in general. The module does not catch any exception. It does not wrap OSError, UnicodeDecodeError, or RecursionError into ValueError with the file path. The file path appears in the messages only when Python includes it (FileNotFoundError does include it; JSON and CSV errors do not). The caller in cli.py handles only two exception types, so the error contract that the module docstring implies is only partly true.
