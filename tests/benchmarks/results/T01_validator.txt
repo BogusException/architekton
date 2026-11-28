@@ -1,0 +1,78 @@
+T01 validator.py summary (tests/benchmarks/sample_jobs/small_project/validator.py)
+
+PURPOSE
+
+validator.py checks a list of record dicts against named rules and returns a ValidationReport. Each rule is a function that takes one record and returns None (pass) or a failure string. Rules register themselves in the module-level dict _RULES through the rule decorator (lines 16-21). Three rules ship in the module: has_id, value_non_negative, name_not_empty.
+
+The CLI calls validate(records, args.rules) at cli.py line 56, passes the report to reporter.write at line 57, and sets the exit code from report.ok at line 58 (0 when ok, 1 when not ok). cli.py lines 59-61 catch only ValueError and FileNotFoundError and exit with code 2. reporter.py reads report.ok, total, passed, failed and results (reporter.py lines 15-27).
+
+
+KEY FUNCTIONS
+
+rule(name: str) -> decorator (lines 16-21)
+Returns a decorator that accepts a RuleFunc, stores it in _RULES under name, and returns it unchanged. Registration happens at import time.
+
+has_id(record: dict) -> str | None (lines 24-28)
+Fails when record.get("id") is falsy. Failure message: "missing or empty 'id'".
+
+value_non_negative(record: dict) -> str | None (lines 31-38)
+Reads record.get("value", 0), converts it with float(), and fails when the result is below zero. If float() raises TypeError or ValueError, the rule fails with "'value' is not numeric". A missing value key counts as 0 and passes.
+
+name_not_empty(record: dict) -> str | None (lines 41-45)
+Converts record.get("name", "") with str(), strips whitespace, and fails when the result is empty.
+
+RecordResult (dataclass, lines 48-52)
+Fields: record_id (str), passed (bool), failures (list of str).
+
+ValidationReport (dataclass, lines 55-64)
+Fields: total, passed, failed (ints), results (list of RecordResult). Property ok (lines 62-64) returns failed == 0.
+
+validate(records: list[dict], rules: list[str] | None = None) -> ValidationReport (lines 67-93)
+Resolves the rule list. A falsy rules value (None or []) selects every registered rule (line 69). Unknown rule names raise ValueError before any record is checked (lines 70-72). For each record, the function calls each active rule and collects "rule_name: message" strings for every failure (lines 77-80). It builds a RecordResult with record_id set to str(record.get("id", "(no id)")) (lines 81-85), then counts passed and failed records (lines 87-91).
+
+
+DESIGN CHOICES
+
+1. A rule has one contract: None means pass, a string means fail. A registry plus decorator lets new rules be added without editing validate().
+2. Every failing rule is reported for each record. The loop does not stop at the first failure, so one record can carry several messages.
+3. Each failure string starts with the rule name (line 80). The reporter can show the rule without a separate field.
+4. Rules are selected by name at call time. Unknown names fail early (lines 70-72).
+5. The module does no I/O. Results are plain dataclasses, so the module is easy to test in isolation.
+6. Totals are stored as fields (lines 57-59) and also derivable from results. Nothing checks that they agree when a report is built by hand.
+7. Records are passed by reference and not copied. Rules must not mutate them. Nothing enforces this.
+8. Annotations use the str | None form (lines 11, 25, 31, 41, 67). Without "from __future__ import annotations", this form is evaluated when the module loads and needs Python 3.10 or later. The project's Python floor is not stated in the files I read.
+
+
+RISKS AND MISSING ERROR HANDLING
+
+Ordered by likelihood of a wrong result in a real run.
+
+1. Empty input passes (lines 74-75, 87-93). If records is an empty list, total, passed and failed are all 0. ok is True (line 64), so the CLI prints "Validation PASSED" and exits 0. Failure scenario: a CSV with a header row and no data rows (or a loader that returns []) passes a validation gate. No check exists for a minimum record count.
+
+2. Non-dict records crash the run (lines 25-26, 78). has_id calls record.get on each item. If the loader returns a list or string, for example from a JSON file that holds ["a", "b"], line 26 raises AttributeError. cli.py catches only ValueError and FileNotFoundError (cli.py line 59), so the process ends with a traceback and exit code 1. That is the same code as a normal validation failure, so a CI job cannot tell the two apart.
+
+3. A None name passes (line 43). str(None) returns "None", which is not empty. Failure scenario: {"id": "1", "name": null, "value": 5} passes name_not_empty and the report shows PASSED. The same applies to numeric names: 0 becomes "0" and passes.
+
+4. NaN and infinity bypass the sign check (line 34). float("nan") < 0 evaluates to False, so a value of "nan" passes value_non_negative. The same happens with float("-nan") in some inputs. Failure scenario: a CSV cell that contains the text nan is accepted as a valid value. A math.isfinite check would close this.
+
+5. A missing value key passes (line 34). record.get("value", 0) treats an absent key as 0. No rule checks that value is present. Failure scenario: a source column is renamed from value to amount. Every record then passes value_non_negative, and the report still shows PASSED. This is a design gap, not a crash.
+
+6. has_id uses truthiness (line 26). Integer 0 is treated as missing, so {"id": 0} fails with "missing or empty 'id'" even though the id exists. A whitespace-only id such as "   " is truthy and passes. Failure scenario: JSON records with numeric id 0 are reported as missing, and blank-space ids are accepted.
+
+7. An empty failure string is lost (line 79). The check is "if msg:", so a rule that returns "" to signal failure is recorded as a pass. The documented contract (lines 2-3) says None means pass. Failure scenario: a future rule builds its message from an empty field and returns "". The record passes with no warning. The check should be "if msg is not None".
+
+8. Inconsistent record IDs in the report (line 82). A missing id key produces "(no id)". An id key set to None produces "None", because str(None) runs. Failure scenario: two records with null ids both appear as "Record None" in the text report (reporter.py line 25), and the user cannot tell them apart.
+
+9. An empty rules list runs every rule (line 69). The check is "rules or list(_RULES)", so [] and None behave the same. cli.py declares --rules with nargs="*" (cli.py lines 34-35), so passing --rules with no values gives []. Failure scenario: a user who passes --rules with no values expects no checks and gets all three. The fix is "if rules is None".
+
+10. A rule exception stops the batch (line 78). validate() does not catch exceptions from rule functions. One bad record that makes any rule raise aborts the whole run with no record-level result. The built-in rules catch numeric errors (lines 36-37), but no other guard exists. The failure reaches the same unhandled path described in risk 2.
+
+11. Silent override in the global registry (lines 13, 19). rule() replaces any existing entry with the same name, with no warning. Failure scenario: a second module that calls @rule("has_id") replaces the built-in check. validate() with rules=None then runs the replacement, and nothing reports the change.
+
+12. Python version dependency (lines 11, 25, 31, 41, 67). The str | None annotations are evaluated at import time. On Python 3.9 or earlier, importing the module raises TypeError before any rule runs.
+
+13. Duplicate rule names run twice (lines 69-80). --rules has_id has_id calls has_id twice per record and lists each failure twice. Impact is low, but the report is misleading.
+
+14. A bare string for rules is split into characters (line 67). validate("has_id") iterates the string and raises ValueError with a list of single characters (lines 70-72). The CLI always passes a list, so this affects only direct Python callers. The error is correct but hard to read.
+
+Summary of what is handled: unknown rule names raise ValueError before work starts (lines 70-72), and value_non_negative handles non-numeric values (lines 36-37). Missing or wrong-type input for any other path is not handled.
