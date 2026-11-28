@@ -1,0 +1,92 @@
+T02 reporter.py summary
+Source: tests/benchmarks/sample_jobs/small_project/reporter.py (60 lines)
+Scope: reporter.py only. validator.py was not read, so the fields ValidationReport and its result objects expose (ok, total, passed, failed, results, record_id, failures) are taken as the reporter uses them. Claims about those fields are marked as unverified where they matter.
+
+
+1. PURPOSE
+
+reporter.py turns a ValidationReport into text or JSON and writes it to a file or to stdout. It is the output stage of the small_project pipeline. It does not validate anything and does not change the report.
+
+The module docstring (lines 1-4) states the same scope: plain text and JSON output for stdout or a file.
+
+
+2. KEY FUNCTIONS
+
+_text_lines(report: ValidationReport) -> list[str]
+Line 13. Builds the text report as a list of lines.
+- Lines 14-19: header line "Validation PASSED" or "Validation FAILED" (chosen by report.ok), then three count lines: Total records, Passed, Failed.
+- Lines 20-27: only when report.ok is false. Adds a blank line, a "Failures:" heading, then for each result with passed false: "  Record <record_id>:" followed by "    - <msg>" for each entry in result.failures.
+- Returns the list. No trailing newline is added here.
+- Note: the function name starts with an underscore, so it is private. Only to_text calls it.
+
+to_text(report: ValidationReport) -> str
+Line 31. Joins _text_lines output with "\n". Returns the text report as one string. No trailing newline.
+
+to_json(report: ValidationReport) -> str
+Line 35. Builds a dict and returns json.dumps(data, indent=2).
+- Top-level keys: "passed" (report.ok), "total", "pass_count" (report.passed), "fail_count" (report.failed), "records".
+- "records" (lines 41-48) lists every result, including passing ones, as {"id", "passed", "failures"}.
+- Returns a string. No trailing newline.
+
+write(report: ValidationReport, fmt: str = "text", dest: str | None = None)
+Lines 53-59. Has a docstring (line 54). Chooses to_json when fmt equals "json" (exact match). Any other value uses to_text. If dest is truthy, writes the content to Path(dest) with write_text. If dest is None or empty, prints the content to sys.stdout. Returns None.
+
+
+3. DESIGN CHOICES
+
+Format is chosen by a string. Line 55 uses a conditional on fmt == "json". Every other value falls through to text. There is no enum, no set of allowed values, and no error for unknown values.
+
+Both formats read the same report object. The text and JSON outputs therefore agree on counts and failures, as long as report.ok, total, passed and failed are consistent with each other (see the risks below).
+
+Content is built in full before any file is opened (line 55 before line 57). If serialization fails, no file is created or truncated. This is the one piece of error safety in the module.
+
+The module has no state, no classes, and only the standard library imports json, sys and pathlib. It is easy to test and easy to call from the CLI.
+
+The JSON output includes passing records with empty failure lists. Output size grows with the number of records, not with the number of failures. The text output shows only failing records.
+
+Naming is inconsistent between the two formats. In JSON, "passed" at the top level is a boolean (overall result), and "pass_count" is the count. In text, "Passed" on line 17 is the count and the PASSED/FAILED header on line 15 is the boolean. A consumer that reads both formats can mix these up.
+
+Only write has a docstring. _text_lines, to_text and to_json have none. The format of the JSON keys is not documented anywhere in this file.
+
+
+4. RISKS AND MISSING ERROR HANDLING
+
+Ranked by how likely each one is to cause a real failure. Each entry gives the line and function.
+
+1. Line 55, write(): unknown format strings fall back to text without an error. Format "JSON", "Json" or "yaml" all write text. A caller that expects JSON receives text and may fail later with a parse error far from the cause.
+
+2. Line 57, write(): no try/except around Path(dest).write_text(content). A missing parent directory raises FileNotFoundError. A directory at dest raises IsADirectoryError. A permission error raises PermissionError. All three propagate to the caller with no message about which file failed.
+
+3. Line 57, write(): write_text is not atomic. If the process stops during the write, the target file is left partly written. Existing content is replaced without a backup.
+
+4. Line 57, write(): no encoding argument. The file uses the locale default encoding. On a system with a non-UTF-8 default (for example Windows cp1252), a record ID or failure message with non-ASCII characters can raise UnicodeEncodeError, or be written in a different encoding than the JSON reader expects.
+
+5. Line 50, to_json(): json.dumps has no default= handler. A record_id or failure entry that is not JSON-serializable (datetime, Decimal, bytes, set, or a custom object) raises TypeError. Because to_json is called from write on line 55, the error reaches the caller and nothing is written. The message does not say which record failed.
+
+6. Line 50, to_json(): json.dumps allows NaN and Infinity by default. Output that contains them is not valid strict JSON, and some parsers reject it. This only matters if a float value ever reaches record_id or failures.
+
+7. Line 59, write(): print to sys.stdout raises BrokenPipeError when the output is piped into a command that exits early (for example "| head"). It is not caught, so the traceback is printed to stderr.
+
+8. Line 15, _text_lines(): the header uses report.ok, but the counts use report.total, report.passed and report.failed. If validator.py sets ok on its own (for example, not from failed == 0), the header can say PASSED while Failed shows a non-zero count, or the reverse. This was not checked here because validator.py was not read.
+
+9. Line 20, _text_lines(): the Failures section is shown only when report.ok is false. If ok is false but no result has passed set to false, the output shows "Failures:" with nothing under it. If a result has passed set to true but still has entries in failures, those entries are not shown. The text output and the JSON output can then disagree.
+
+10. Line 24, _text_lines(): result.passed is used as a truth test. If passed is None, the record is shown as a failure. If the object has no passed attribute, AttributeError is raised.
+
+11. Line 26, _text_lines(): result.failures is iterated without a check. If it is None, the function raises TypeError. If it is a single string, each character is printed as its own line.
+
+12. Line 47, to_json(): report.results is iterated without a check. If the attribute is None (not an empty list), the function raises TypeError. An empty list is handled: "records" becomes [] and the text output shows only the counts.
+
+13. Line 15, _text_lines(): an empty report (total 0) prints "Validation PASSED" if ok is true. An empty input therefore looks like a pass. Whether that is correct depends on validator.py, which was not read here. The reporter does not warn about a zero total.
+
+14. Lines 37-40, to_json(): the counts and the boolean are copied without any check. A report with total 0 and ok false (if it can happen) produces JSON that is internally inconsistent. The reporter does not detect this.
+
+15. Line 25, _text_lines(): record_id is printed with an f-string. A None ID prints "None". An empty string prints as an empty field after "Record". The output does not show that the ID is missing.
+
+16. Line 53, write() signature: the dest parameter is annotated "str | None", and line 13 uses "list[str]". Both need Python 3.10 or newer at import time (the annotations are evaluated when the def runs). The file does not state a minimum Python version.
+
+17. Line 57, write(): dest="" is falsy, so the content goes to stdout instead of an error. A path that is empty because of a bug is silently printed.
+
+18. Line 53, write(): returns None. Callers cannot confirm the byte count or the path written. Scripts that need to log the output path must compute it themselves.
+
+Error handling that is missing as a whole: the module has no try/except anywhere, no logging, and no check on the type or shape of the report argument. Any problem in the report object appears as a raw exception from json, pathlib or the attribute access, not as an error that names the field or the record.
