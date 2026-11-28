@@ -1,0 +1,58 @@
+PURPOSE
+
+transformer.py applies a chain of named transformations to a list of record dicts. cli.py calls apply(records, args.steps) at line 55, after data_loader.load() and before validator.validate(). The default chain is strip_whitespace, normalize_value, add_flag (cli.py line 16). Each transformation takes one record dict and returns a new dict. The module does not read files, write output, or use the network.
+
+Records come from data_loader. For JSON, load_json checks only that the top level is a list (data_loader.py lines 33-34). It does not check the type of each element. For CSV, field values are normally strings, so the numeric value field needs normalize_value before any numeric comparison. I did not read load_csv in full.
+
+
+KEY FUNCTIONS
+
+1. register(name: str), lines 14-19. Returns a decorator. The decorator stores the decorated function in the module-level _REGISTRY dict under name and returns the function unchanged, so the function can still be called directly.
+
+2. decorator(fn: Callable[[dict], dict]), lines 16-18. Inner function created by register. Writes fn into _REGISTRY[name] and returns fn.
+
+3. normalize_value(record: dict) -> dict, lines 22-30. Copies the record and converts the "value" field to float. If the conversion raises TypeError or ValueError (for example None, "abc", or a list), it sets value to 0.0. A missing "value" key is treated as 0 and then also becomes 0.0 through the same path. Returns the copy.
+
+4. strip_whitespace(record: dict) -> dict, lines 33-36. Returns a new dict where each string value has leading and trailing whitespace removed. Non-string values pass through unchanged. Keys are not changed.
+
+5. add_flag(record: dict) -> dict, lines 39-44. Copies the record and sets "flagged" to True when float(value) > 100, otherwise False. It does not catch conversion errors.
+
+6. apply(records: list[dict], steps: list[str]) -> list[dict], lines 47-55. First checks every name in steps against _REGISTRY and raises ValueError listing the unknown names (lines 49-51). Then, for each step in order, replaces the whole list with the result of that step applied to every record (lines 52-54). Returns the final list. The input list is not modified.
+
+
+DESIGN CHOICES
+
+Registry by decorator. Steps are added by name with @register and looked up by string in apply. The CLI passes step names as plain text, and a new step needs no change to apply. The cost is one global mutable dict (line 11), so registration applies to the whole process.
+
+Functions return copies. Each built-in step builds a new dict (dict(record) at lines 25 and 42, a new comprehension at line 36). The caller's records are not changed. This holds for the built-ins only. Nothing enforces it for custom steps.
+
+Fail fast on unknown names. The check at lines 49-51 runs before any record is processed. A typo in --steps fails at once and does not stop partway through the data.
+
+Step-major processing. Lines 53-54 run one step over the full list before the next step starts. This is easy to read. The cost is that an error in a later step appears only after every earlier step has finished on every record. Peak memory is about two full lists.
+
+Ordering is the caller's job. Nothing checks that normalize_value runs before add_flag. The default order in cli.py is correct.
+
+Silent coercion. normalize_value chooses to replace bad input with 0.0 (line 29) instead of raising. This keeps the run going, but it hides bad data from the rest of the pipeline.
+
+
+RISKS AND MISSING ERROR HANDLING
+
+Ordered by how likely each one is to affect a real run.
+
+1. Lines 27-29: bad values become 0.0 with no trace. Scenario: a CSV has "N/A" in the value column for 40 rows. normalize_value sets each of them to 0.0. 0.0 passes a non-negative check, so the report shows no problem for those rows, and nothing in the output says 40 values were replaced. The function returns no count and logs nothing.
+
+2. Line 43: add_flag has no error handling, unlike normalize_value. Scenario: run with --steps add_flag alone on a CSV where one row has an empty value. float("") raises ValueError. A JSON record with "value": null in the same position raises TypeError. Either error escapes apply(), propagates through cli.py line 55, and ends the run with a traceback. No report is written. The default chain avoids this because normalize_value runs first, but only if the user keeps that order.
+
+3. Line 36: assumes every record is a dict. Scenario: a JSON file contains [{"id": 1, "name": "a"}, 42]. load_json accepts it because the outer value is a list (data_loader.py lines 33-34). strip_whitespace calls record.items() on 42 at line 36 and raises AttributeError: 'int' object has no attribute 'items'. The traceback does not say which element failed.
+
+4. Lines 53-54: no exception handling and no record context. Scenario: 10,000 records, and record 7,431 causes a custom step to raise. The exception leaves the list comprehension at line 54 and stops the run. The traceback names line 54 but not the record index or content, and no partial output is written.
+
+5. Line 54: no check that a step returns a dict. Scenario: a custom step ends without a return statement, so it returns None. The next step fails at line 25 (dict(None) raises TypeError) or line 36 (None.items() raises AttributeError). The error points to a built-in step, far from the custom step that caused it.
+
+6. Lines 14-17 and line 11: duplicate names overwrite silently. Scenario: a plugin module registers "add_flag" again with a different threshold. Line 17 replaces the built-in function with no warning, so behavior depends on import order. The registry is global, so a test that registers a step keeps it for every later test in the same process, and the unknown-name check at line 49 then accepts it.
+
+7. Lines 27 and 43: NaN and infinity pass through. Scenario: a CSV row has "nan" in the value column. float("nan") succeeds at line 27, so the 0.0 fallback does not run. The record keeps nan. At line 43, nan > 100 is False, so the record is not flagged. Any comparison with nan is False, so a rule written as "reject if value < 0" accepts it. "inf" also passes the conversion and gets flagged, and later arithmetic on it may produce more inf or nan values.
+
+8. Line 36: only values are stripped, not keys. Scenario: a CSV header row reads "id, name". The second key becomes " name" with a leading space. strip_whitespace leaves the key as it is, so record["name"] is missing for the validator. I did not check whether load_csv strips header names, so this depends on that code.
+
+9. Lines 11, 22, and 47: the annotations dict[str, ...] and list[dict] need Python 3.9 or newer. Scenario: the module is run on Python 3.8. The import fails at line 11 with TypeError: 'type' object is not subscriptable. Low risk if the project already requires 3.9 or newer. validator.py uses list[str] | None, which needs 3.10 or newer, so the project may already have a higher minimum.
