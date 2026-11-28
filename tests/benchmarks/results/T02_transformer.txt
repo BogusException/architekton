@@ -1,0 +1,69 @@
+T02 transformer.py summary (small_project benchmark)
+Source: tests/benchmarks/sample_jobs/small_project/transformer.py (56 lines)
+
+Purpose
+
+transformer.py applies a chain of named transformations to a list of record dicts. Each transformation takes one record dict and returns a modified copy. Transformations register under a string name through a decorator, and apply() runs the requested names in order over every record. The module ships three built-in transforms: normalize_value, strip_whitespace, and add_flag.
+
+Key functions
+
+register(name: str) -> decorator (lines 14-19)
+Decorator factory. The returned decorator stores the decorated function in the module-level dict _REGISTRY under name and returns the function unchanged. Return value: the decorator. Registering an existing name replaces the old entry without an error.
+
+normalize_value(record: dict) -> dict (lines 22-30)
+Registered as "normalize_value". Copies the record (line 25), then sets "value" to float(record.get("value", 0)). If float() raises TypeError or ValueError, "value" is set to 0.0 (line 29). A missing "value" key is treated as 0, so the result is 0.0. Return value: a new dict. All other keys are unchanged.
+
+strip_whitespace(record: dict) -> dict (lines 34-36)
+Registered as "strip_whitespace". Builds a new dict in which every top-level str value is replaced by its str.strip() result. Non-string values pass through unchanged. Return value: a new dict. Nested values are not inspected.
+
+add_flag(record: dict) -> dict (lines 40-44)
+Registered as "add_flag". Copies the record (line 42), then sets "flagged" to True when float(record.get("value", 0)) > 100, otherwise False (line 43). The conversion has no error handling. Return value: a new dict. A missing "value" key is treated as 0, so "flagged" is False.
+
+apply(records: list[dict], steps: list[str]) -> list[dict] (lines 47-55)
+Checks every name in steps against _REGISTRY before touching any record (lines 49-51). If any name is unknown, raises ValueError listing the unknown names. Otherwise copies the records list (line 52), then for each step replaces the working list with the result of applying that transform to every record (lines 53-54). Return value: a new list. With an empty steps list, the return value is a shallow copy of the input list that holds the same dict objects.
+
+Design choices
+
+The registry is a module-level dict (line 11), filled at import time by the decorators. Adding a transform needs one decorated function and no central list to edit.
+
+Each transform copies its input: dict(record) on lines 25 and 42, and a dict comprehension on line 36. The built-in transforms do not change the caller's records. Steps can therefore be reordered or repeated without side effects on the input data.
+
+apply() validates all step names before it processes any record (lines 49-51). A typo fails at the start of the run, not in the middle of a job.
+
+apply() runs one step over the whole list before it starts the next step (lines 53-54). The code is easy to read. Each stage holds a complete new list in memory.
+
+All transforms share one signature, dict in and dict out. This keeps composition simple.
+
+The threshold of 100 is a literal inside add_flag (line 43). The field names "value" and "flagged" are also literals.
+
+The annotations use built-in generics (dict[str, ...] on line 11, list[dict] on line 47). These are evaluated when the module loads, so the module needs Python 3.9 or later. The module does not state a minimum version.
+
+Risks and missing error handling
+
+1. add_flag, line 43: the conversion is not guarded. float(out.get("value", 0)) has no try block. A value of None, "abc", or a list raises TypeError or ValueError, and the exception leaves apply(). If add_flag runs before normalize_value, the job crashes on that record. normalize_value is the only step that cleans the field, so the step order decides whether the job fails.
+
+2. normalize_value, lines 27-29: silent replacement. Any value that float() rejects becomes 0.0. Nothing logs it, counts it, or marks the record. A bad value and a real zero look the same in the output. This hides data quality problems. A reject list or an error count would make them visible.
+
+3. normalize_value (line 27) and add_flag (line 43): NaN and infinity pass through. float("nan"), float("inf"), and float("1e400") all succeed, so no fallback runs. NaN > 100 is False, so add_flag sets "flagged" to False for a NaN input. That is wrong for a value that is unknown. Infinity is flagged True and kept as is.
+
+4. normalize_value, line 27: coercion is broad and sometimes wrong. A string such as "1,234.5" fails and becomes 0.0 on line 29, which is a silent data loss for a common format. True becomes 1.0, and "  12 " becomes 12.0. The code does not say which of these it accepts.
+
+5. add_flag, line 43: hard-coded threshold. The cutoff of 100 is a literal in the function body. A job cannot change it, and it cannot apply to a different field. The comparison is strict, so a value of exactly 100 is not flagged. The name "flagged" on line 44 overwrites any existing "flagged" key in the input without a warning.
+
+6. normalize_value (line 27) and add_flag (line 43): missing key defaults to 0. A record without "value" becomes 0.0 under normalize_value and is treated as 0 by add_flag. Missing data becomes a valid-looking zero. add_flag does not write "value" back, so its output for such a record has no "value" key. No step checks that a required key exists.
+
+7. strip_whitespace, line 36: no check on record type. The function calls record.items(). If a record is None, a list, or a string, the call raises AttributeError. The exception carries no record index and no step name, because apply() (line 54) does not catch it.
+
+8. normalize_value (line 25), add_flag (line 42), strip_whitespace (line 36): shallow copies only. dict(record) and the comprehension copy the top level only. A list or dict stored inside a record is shared between the input and the output. The current built-ins do not mutate nested values, but a future transform that does would change the caller's input without warning.
+
+9. apply, line 52: inconsistent copy behavior. With an empty steps list, the returned dicts are the same objects as the input dicts. With one or more steps, every returned dict is a new object. A caller that edits the returned records can change the original records only when steps is empty.
+
+10. register, line 17: duplicate names overwrite silently. A second decorator with the name "normalize_value", for example in another module imported later, replaces the built-in without an error. The results of every job change, and nothing shows why.
+
+11. apply, lines 49-51: weak input checks and a poor error message. If steps is a string such as "normalize_value", the loop runs over single characters, and the error lists single letters. The error does not list the valid names, so the caller has to read the source. The function does not check that records is a list of dicts.
+
+12. apply, lines 53-54: no error handling per step or per record. An exception from any transform stops the entire run. The error does not say which step or which record index caused it. There is no option to skip, default, or collect failed records.
+
+13. apply, line 54: memory and allocation cost. Each step creates a new list and a new dict for every record. For N records and S steps, the run creates about N times S dicts. This is acceptable for small jobs. For large inputs, it adds allocation cost and peak memory. An in-place or generator design would avoid this, but it would make the code harder to reason about.
+
+14. Module-level annotations, lines 11 and 47: Python 3.9 or later is required. The minimum version is not stated in the module or in a docstring.
