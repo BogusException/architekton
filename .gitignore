@@ -31,8 +31,9 @@ tests/benchmarks/results/*/
 # Loose output files written to results root (plain-mode and analysis artifacts)
 tests/benchmarks/results/*.txt
 
-# Benchmark timing history and baseline cache (local only)
+# Benchmark timing history and baseline cache (local only, never commit)
 tests/benchmarks/results/.timing_history.json
+tests/benchmarks/results/.baseline/
 
 # Logs & runtime
 *.log
