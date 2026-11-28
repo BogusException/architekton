@@ -1,77 +1,35 @@
 File: tests/benchmarks/sample_jobs/small_project/cli.py (65 lines)
 
-Purpose:
+Purpose
 
-cli.py is the command-line entry point for the small_project pipeline. It takes a data file path, an optional list of transformation steps, an optional list of validation rules, an output format, and an optional output file. It runs four stages in order: load the file, apply the transformation steps, validate the records, and write the report. The module does not process data itself. It only parses arguments, calls the other modules, and sets the process exit status.
+cli.py is the command-line entry point of the pipeline. It takes a data file path and runs four stages in order: load (data_loader), transform (transformer), validate (validator), report (reporter). It maps the outcome to a process exit code: 0 when every record passes, 1 when at least one record fails validation, 2 for input errors.
 
-The imports at lines 10-13 confirm where it sits in the pipeline:
-- Line 10: from data_loader import load
-- Line 11: from transformer import apply
-- Line 12: from validator import validate
-- Line 13: from reporter import write
+Key functions
 
-The call sites at lines 54-57 show the contract this file expects from each module: load(path) returns records; apply(records, steps) returns records; validate(records, rules) returns a report object with an "ok" attribute; write(report, fmt=..., dest=...) emits the report. The bodies of those functions were not read for this summary, so the contract is inferred from the call sites only.
+main() (lines 20-61) is the only function.
+- Lines 21-51 build the argparse parser. Positional "file"; options --steps, --rules (both nargs="*"), --format (text or json, default text), --output (file path, default stdout).
+- Lines 53-58 run the pipeline: load(args.file), apply(records, args.steps), validate(records, args.rules), write(report, fmt=..., dest=...), then sys.exit(0 if report.ok else 1).
+- Lines 59-61 catch ValueError and FileNotFoundError, print "error: <message>" to stderr, and exit 2.
 
-Module-level constants (lines 16-17):
-- DEFAULT_STEPS = ["strip_whitespace", "normalize_value", "add_flag"]
-- DEFAULT_RULES = ["has_id", "value_non_negative", "name_not_empty"]
+Module constants DEFAULT_STEPS (line 16) and DEFAULT_RULES (line 17) hold the default step and rule names. They are also used to build the --help text.
 
-Key functions:
+Design choices
 
-main() (line 20)
-Signature: def main() -> None. It takes no parameters. It reads its inputs from sys.argv through argparse.ArgumentParser.parse_args() at line 51.
-Inputs (command-line arguments):
-- file (positional, line 24): path to a .csv or .json file. Required.
-- --steps (lines 25-31): zero or more step names, nargs="*". Default is DEFAULT_STEPS.
-- --rules (lines 32-38): zero or more rule names, nargs="*". Default is DEFAULT_RULES.
-- --format (lines 39-44): "text" or "json", enforced by choices. Default is "text".
-- --output (lines 45-50): file path. Default is None, which means stdout.
-Return value: none. The function always ends by calling sys.exit(), either inside the try block at line 58 or in the except block at line 61. Normal Python return is not reachable on the success or handled-error paths.
-Side effects:
-- Reads the input file (through load, line 54).
-- Writes the report to stdout, or to the file named by --output (through write, line 57).
-- On a handled error, writes "error: <message>" to stderr (line 60).
-- Ends the process with sys.exit (lines 58 and 61).
-Exit codes:
-- 0: the pipeline ran and report.ok is truthy (line 58).
-- 1: the pipeline ran and report.ok is falsy (line 58). This is used for validation failure.
-- 2: a ValueError or FileNotFoundError was raised by load, apply, validate, or write (lines 59-61).
-- 2 is also the code argparse uses for usage errors (missing file argument, bad --format value). Usage errors exit before the try block at line 53, so they do not print the "error:" prefix.
-Stdout and stderr:
-- stdout: the report, in the format chosen with --format, unless --output is set.
-- stderr: only the "error: <message>" line from the except block. No other output comes from this file.
+- The module is a thin orchestrator. It has no business logic, so each stage can be tested alone.
+- Three distinct exit codes let a shell script tell "data is bad" (1) from "tool was misused or input unreadable" (2).
+- Steps and rules are plain strings, resolved by name in the transformer and validator registries. The CLI does not need to know what steps exist.
+- Defaults are module constants shared by the argument defaults and the help text, so the two cannot drift apart.
+- The report is written before the exit code is chosen, so the user always gets output when validation fails.
+- sys.exit(0 or 1) sits inside the try block. SystemExit is not an Exception subclass caught by the except clause, so this works, but it is easy to misread.
 
-Design choices:
+Risks and missing error handling
 
-The file is a straight line of four calls in one try block (lines 53-61). Each stage gets the output of the previous stage. There are no classes, no helper functions, and no intermediate logging.
-
-Argument defaults live in two module-level lists (lines 16-17) and are used as the argparse default values (lines 28 and 35). The rule and step names are not checked against a registry in this file. Validation of names, if any, happens inside transformer.py and validator.py.
-
-The exit status comes from report.ok (line 58), so the decision about pass or fail stays with the validator. This file only translates it to 0 or 1.
-
-Error handling is narrow. Only ValueError and FileNotFoundError are caught (line 59). Any other error ends the program with a traceback.
-
-Trade-offs:
-- main() takes no arguments and calls parse_args() with no argument list. Tests that want to call main() in-process have to patch sys.argv. The function also never returns a value, so the caller only sees the result through SystemExit.
-- Using one try block around the whole pipeline keeps the code short. It also means a ValueError from any stage gets the same exit code (2) and the same message format, so the caller cannot tell which stage failed from the exit code alone.
-- The report is written (line 57) before the exit status is computed (line 58). A failing validation still produces the full report output, then exits 1. This is useful for reading the report, but a script that only checks the exit code gets no separate signal for the write step.
-
-Risks and missing error handling:
-
-1. Uncaught exceptions (lines 53-61, all calls inside the try block). The except clause catches only ValueError and FileNotFoundError. Other OSError subclasses raised by load (line 54) or write (line 57), such as PermissionError when --output points to a read-only location or IsADirectoryError when a directory is passed as the file, are not caught. They end the program with a Python traceback and exit code 1.
-
-2. Exit code collision (line 58 and the uncaught path above). Exit code 1 means "validation failed" at line 58. An uncaught exception also exits with 1. A script that checks only the exit code cannot tell a failed validation from a crash.
-
-3. Positional argument swallowed by --steps or --rules (lines 25-38 with line 24). Both options use nargs="*" and are declared after the positional file argument. Running "cli.py --steps strip_whitespace data.csv" makes argparse read data.csv as a step name. The file positional is then missing, and argparse exits with code 2 and the message "the following arguments are required: file". The fix is to put the file before the options, or to use "--steps=..." style with a single value. This is standard argparse behavior and the code does not guard against it.
-
-4. Empty step or rule list (lines 25-38). Passing "--steps" with no values gives an empty list, not the default. The code does not check for this. The effect depends on apply() and validate() in transformer.py and validator.py, which were not read for this summary. Whether an empty list means "run nothing" or raises an error is not visible from this file.
-
-5. Unknown step or rule names (lines 25-38). The options have no choices= argument, so argparse accepts any string. A typo such as "strip_whitespce" is not caught at parse time. The error, if any, comes from transformer.py or validator.py. If that module raises ValueError, the message is printed with exit code 2. If it raises another exception type, see risk 1. This file does not show which happens.
-
-6. Input file type is not checked here (lines 24 and 54). The help text at line 24 says ".csv or .json", but nothing in this file checks the extension. The behavior for other extensions is up to data_loader.py, which was not read for this summary.
-
-7. Usage errors and runtime errors share exit code 2 (line 61 and argparse). A caller cannot tell from the exit code alone whether the arguments were malformed or the data failed to load.
-
-8. Output file handling (lines 46-50 and 57). When --output is given, the file may be created or partly written before an error occurs in write(). The error path at lines 59-61 prints to stderr only. The output file is not removed or marked as incomplete. Whether write() cleans up is not visible from this file.
-
-9. No silent failures were found in this file. Every path either writes output, writes an error to stderr, or sets an exit code. The one silent path is an empty report with report.ok true, which would exit 0 with no visible content only if the reporter writes nothing for an empty report. That depends on reporter.py.
+1. Narrow exception net (line 59). Only ValueError and FileNotFoundError are caught. These cases give a raw traceback instead of exit 2: PermissionError and IsADirectoryError when opening the input, any OSError when writing --output (disk full, read-only path), TypeError and AttributeError when a JSON array holds non-dict items (for example [1, 2]), and TypeError from add_flag when "value" is null. (json.JSONDecodeError and UnicodeDecodeError are ValueError subclasses, so they are caught.)
+2. Broad ValueError catch. A ValueError raised by a bug deep in a transformer, such as float("abc") in add_flag, is reported as "error: could not convert string to float" with exit 2. The message gives no hint of which stage or record failed.
+3. Empty-list asymmetry (lines 27-38). "--steps" with no values gives an empty list, so no transformation runs. "--rules" with no values gives an empty list, which validate() treats as "run all registered rules" (validator.py line 69). The two flags behave differently for the same input shape.
+4. Default list objects are passed straight from the module constants. Nothing mutates them today, but a later in-place change would corrupt the defaults.
+5. Flat imports (lines 10-13: "from data_loader import load"). The script only works when its own directory is on sys.path, so running it as a package module or from another working directory fails with ImportError.
+6. No check that --output is a writable path before the pipeline runs. A bad path fails only after all processing is done.
+7. --output silently overwrites an existing file. When --output is set, nothing prints to stdout, so a user may not notice a failed run except through the exit code.
+8. A report with zero records counts as passed (exit 0), because ok is failed == 0. An empty input file will look like success.
+9. There are no tests, logging, or --verbose option in this file.
