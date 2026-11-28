@@ -1,0 +1,230 @@
+S02 code review: small_project
+
+Cross-file issues
+
+1. Same data, different shapes by file type. load_csv() returns every field as a string ("id": "7", "value": "12.5"). load_json() returns native types and checks no keys. The downstream modules treat these differently. has_id accepts the CSV id "0" (a non-empty string) but rejects the JSON id 0. A JSON record with no "value", "name" or "timestamp" key loads without error, while the same record in CSV fails in load_csv(). In JSON, a missing "value" then defaults to 0 in normalize_value, add_flag and value_non_negative, so the record passes the whole pipeline.
+
+2. The default steps hide the bad values the default rules look for. DEFAULT_STEPS in cli.py runs normalize_value before validation. It turns None, "n/a" and "1,234" into 0.0, and value_non_negative then passes them. The "'value' is not numeric" branch in validator.py cannot fire for any record that went through the default steps. NaN and inf from normalize_value also pass value_non_negative.
+
+3. Step order is implicit between transformer and the input shape. add_flag calls float() on "value" with no guard. With --steps add_flag alone, a CSV value such as "n/a" raises ValueError (cli.py exits 2, but the message names no step or record). A short CSV row gives value None, which raises TypeError. cli.py does not catch TypeError, so it escapes as a traceback with exit code 1.
+
+4. Exit code 1 means two things. cli.py exits 1 when validation fails. It also exits 1 when an exception that main() does not catch escapes. Examples: OverflowError from value_non_negative (value 10**400), AttributeError from has_id or strip_whitespace when a JSON array holds non-dict items such as [1, 2, 3], TypeError from add_flag, and OSError from write(). A script that checks the exit code cannot tell a failed report from a crash.
+
+5. Empty rule list runs all rules. cli.py accepts "--rules" with no names (nargs="*") and passes []. validate() does "rules or list(_RULES)", so [] runs every rule. The user asked for no rules and gets all of them. "--steps" with no names does skip all transforms, so the two options behave in opposite ways for the same input.
+
+6. Failure records are hard to locate in the report. validate() sets record_id to str(record.get("id", "(no id)")). A record with an empty id prints as "Record :" in reporter.py. A record with id None prints as "Record None:". Records with no id key print "Record (no id):". The report holds no row number, so one empty-id record cannot be told from another, and duplicate ids cannot be told apart.
+
+7. Failed runs still write the report. cli.py calls write() before it checks report.ok. A failing run therefore leaves the --output file on disk and then exits 1. Nothing in the help text says so.
+
+8. Empty input passes. An empty CSV (headers only) or an empty JSON array gives records=[]. validate() returns total=0, failed=0 and ok=True, and reporter.py prints "Validation PASSED". cli.py exits 0 and no module warns that nothing was checked.
+
+9. Validation never reads "timestamp". load_csv() requires the column, but no transform or rule uses it, so a record with a blank or invalid timestamp passes.
+
+cli.py
+
+(1) What it does:
+cli.py is the command-line entry point for the sample data pipeline. main() parses a data file path plus the --steps, --rules, --format, and --output options, then runs load, apply, validate, and write in that order. It exits 0 when the report passes, 1 when validation fails, and 2 when a ValueError or FileNotFoundError is raised.
+
+(2) Bugs / unhandled edge cases:
+1. main(), lines 54-59: only ValueError and FileNotFoundError are caught. PermissionError, IsADirectoryError, and other OSError subclasses raised by load() (line 54) or write() (line 57) escape as a raw traceback.
+2. main(), lines 58 and 61: exit code 1 means "validation failed", but an uncaught exception also exits with 1. A caller cannot tell a failing report from a crash.
+3. main(), line 58: sys.exit() sits inside the try block. It works, because SystemExit is not a ValueError, but it makes the control flow harder to follow and would be caught by any broader handler added later.
+4. main(), lines 57-58: write() runs before the pass/fail decision, so a failing report is still written to --output. Nothing in the help text says so, and a failed run leaves an output file behind.
+5. Lines 27 and 34 (nargs="*" for --steps and --rules): zero values are accepted. Passing --steps with no names skips all transforms. Passing --rules with no names passes [] to validate(), which treats an empty list as "no argument" and runs every rule (see validator.py item 1). Nothing warns the user in either case.
+6. Lines 26-35 (nargs="*" on --steps and --rules): a file path placed after either option is consumed as a step or rule name. For example, "cli.py --steps data.csv" fails with "the following arguments are required: file" (exit 2) and never treats data.csv as the input.
+7. Line 51 and the def on line 20: parse_args() reads sys.argv directly and main() takes no arguments. Tests must patch sys.argv, and the function cannot be called from Python with a custom argument list.
+8. Lines 28 and 35: the defaults are the module-level lists DEFAULT_STEPS and DEFAULT_RULES. argparse returns those same objects, so any code that mutates args.steps or args.rules changes the defaults for the rest of the process. The current code does not mutate them.
+
+(3) Improvement suggestion:
+Give main() an argv parameter and handle OSError with the same exit code as bad input. That fixes items 1 and 7 with one change, narrows item 2, and leaves the exit codes for validation results (0 and 1) unambiguous. Sketch:
+
+def main(argv=None):
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    try:
+        records = load(args.file)
+        records = apply(records, args.steps)
+        report = validate(records, args.rules)
+        write(report, fmt=args.format, dest=args.output)
+    except (ValueError, OSError) as err:
+        print(f"error: {err}", file=sys.stderr)
+        return 2
+
+    return 0 if report.ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+Move the parser setup from main() into build_parser() so the sketch stays short. The change also turns a PermissionError from a traceback (exit 1) into a clean message (exit 2). FileNotFoundError is a subclass of OSError, so the existing case still exits 2.
+
+data_loader.py
+
+(1) What it does:
+The module reads CSV and JSON files and returns their records as lists of dicts. load_csv() and load_json() each parse one format. load() picks the parser from the file extension. Only load_csv() checks that the required columns (id, name, value, timestamp) exist, and it raises ValueError when they are missing. load_json() only checks that the top-level value is a JSON array.
+
+(2) Bugs / unhandled edge cases:
+1. load_json() (line 35): no record check. The docstring and the return type say list[dict], but [1, 2, 3] or [{"id": 1}] passes through unchanged. A JSON file with missing "value" or "timestamp" keys also passes, while the same data in CSV fails. The two formats give different guarantees.
+2. load_csv() (line 18) and load_json() (line 31): open() has no encoding argument. The platform default is used. A UTF-8 CSV saved with a BOM (common for files exported from Excel) gives the first header "﻿id". The check at line 21 then reports "id" as missing, which points the user at the wrong problem.
+3. load_csv() (lines 20-21): header names are not stripped or case-folded. "id ", " name", or "Value" fail the check with a message that looks like the column is absent.
+4. load_csv() (lines 22-23) and load_json() (lines 32-34): the error messages do not name the file. "CSV missing required columns", "Expected a JSON array", and the json.JSONDecodeError text ("Expecting value: line 1 column 1 (char 0)") give no path, so a batch run over many files does not say which one failed.
+5. load_csv() (lines 20-23): an empty file has reader.fieldnames == None. The code turns that into an empty set and reports all four columns as missing. The message does not say the file is empty.
+6. load_csv() (lines 24-25): short rows are filled with None by DictReader. Rows with extra cells store the extras under the key None. Neither case is rejected, so row["value"] can be None or a string with no type check.
+7. load_csv() (line 20): duplicate header names are accepted silently. DictReader keeps the last column with that name.
+8. load_csv() and load_json(): both read the whole file into memory (lines 24-25 and line 32). No size limit or streaming option exists.
+9. load() (lines 41-45): the extension match is case-sensitive, so "DATA.CSV" raises "Unsupported file type: .CSV". Files such as data.csv.gz are rejected with the same message.
+
+(3) Improvement suggestion:
+Make both loaders enforce the same record contract and read files with an explicit encoding. Then a JSON file and a CSV file with the same content behave the same way, and a BOM no longer breaks the header check.
+
+    ENCODING = "utf-8-sig"  # strips a leading BOM if present
+
+    def _validate_records(records: list, source: str) -> list[dict]:
+        for i, rec in enumerate(records):
+            if not isinstance(rec, dict):
+                raise ValueError(f"{source}: record {i} is {type(rec).__name__}, expected object")
+            missing = REQUIRED_COLUMNS - rec.keys()
+            if missing:
+                raise ValueError(f"{source}: record {i} missing {sorted(missing)}")
+        return records
+
+    def load_json(path: str) -> list[dict]:
+        with open(path, encoding=ENCODING) as fh:
+            data = json.load(fh)
+        if not isinstance(data, list):
+            raise ValueError(f"{path}: expected a JSON array, got {type(data).__name__}")
+        return _validate_records(data, path)
+
+In load_csv(), change the open() call to open(path, newline="", encoding=ENCODING) and strip the header names before the set difference. Error messages that include the path make the failures easier to trace in batch runs.
+
+reporter.py
+
+(1) What it does:
+reporter.py turns a ValidationReport from validator.py into text or JSON. to_text() and to_json() return the rendered string, and _text_lines() builds the text layout (summary counts, then a per-record failure list when the report is not OK). write() picks the format by name ("text" or "json") and writes the result to a file, or to stdout when no destination is given.
+
+(2) Bugs / unhandled edge cases:
+1. write() (line 53-59): an unknown fmt such as "JSON" or "tex" silently falls through to the text renderer on line 55. The caller gets text output with no error. cli.py limits --format to "text" and "json", so only direct callers are exposed.
+2. write() (line 57): Path.write_text() fails with FileNotFoundError when the parent directory of dest does not exist. Nothing creates it.
+3. write() (line 57): OSError cases (permission denied, disk full, read-only share) are not caught or re-raised with context. Path.write_text() also truncates the file before it writes, so a failure part way through leaves an empty or partial report on disk.
+4. write() (line 57): no encoding is passed. The default depends on the locale. A message with non-ASCII text (for example, a record name with accented characters) can raise UnicodeEncodeError on a non-UTF-8 system. JSON output is safe here only because json.dumps() escapes non-ASCII by default.
+5. _text_lines() (line 20-27): an empty report (report.total == 0) prints "Validation PASSED" with no indication that nothing was checked. validator.py sets ok as failed == 0, so an empty input always reports as passed.
+6. write() (line 59): the print() path does not handle BrokenPipeError. Piping the output to head or less can print a traceback.
+7. Line 10: "from validator import ValidationReport" only works when the directory containing validator.py is on sys.path. Importing reporter.py from another directory fails with ModuleNotFoundError.
+
+(3) Improvement suggestion:
+Validate fmt at the call site, create the parent directory, write with an explicit UTF-8 encoding, and write through a temp file so a failed write does not destroy the old report. A dispatch table also removes the silent fallback in write():
+
+    FORMATS = {"text": to_text, "json": to_json}
+
+    def write(report, fmt="text", dest=None):
+        try:
+            render = FORMATS[fmt]
+        except KeyError:
+            raise ValueError(
+                f"unknown format {fmt!r}; expected one of {sorted(FORMATS)}"
+            ) from None
+        content = render(report)
+        if not dest:
+            print(content)
+            return
+        path = Path(dest)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(content, encoding="utf-8")
+        tmp.replace(path)
+
+This keeps the public signature the same. Callers that pass a bad fmt now get an error at once. Also, test the empty-report case (item 5) before changing the wording of the output.
+
+transformer.py
+
+(1) What it does:
+The module applies named transformations to a list of record dicts. Functions join the module-level _REGISTRY dict through the @register decorator. Three built-ins are registered: normalize_value casts "value" to float and falls back to 0.0, strip_whitespace trims top-level string fields, and add_flag sets "flagged" when "value" is greater than 100. apply() checks every step name, then runs the steps in order over every record and returns a new list.
+
+(2) Bugs / unhandled edge cases:
+1. add_flag (line 43): float(out.get("value", 0)) is not guarded. A record with "value": None or "value": "n/a" raises TypeError or ValueError when add_flag runs without normalize_value first. The order ["normalize_value", "add_flag"] works for the same input. The step-order dependency is implicit.
+2. normalize_value (lines 27-29): None and a missing key both become 0.0 with no log. Non-numeric strings such as "1,234" also become 0.0, so bad input is hidden from the caller.
+3. normalize_value (line 27): float() accepts "nan", "inf", and "-inf". NaN passes through as a valid value. add_flag then returns False for NaN (line 43), and any later sum or sort is corrupted. Booleans are also accepted: True becomes 1.0.
+4. strip_whitespace (line 36): only top-level string values are stripped. Strings inside nested dicts or lists keep their whitespace. If a record is not a dict, record.items() raises AttributeError with no record index.
+5. apply (line 54): each step receives the caller's original dict. A custom registered transform that mutates its argument in place changes the caller's data. The built-ins copy the dict first, so they are safe.
+6. apply (line 55): when steps is empty, the function returns a new list that holds the same dict objects as the input. Changes to the output dicts also change the input.
+7. apply (line 49): if steps is a string such as "normalize_value", the loop runs over single characters. The error then lists items like ['n', 'o', 'r', ...], which hides the real problem. If steps is None, iteration raises TypeError with no clear message.
+8. apply (line 52): records=None raises TypeError from list(). A non-dict item fails inside a step with an error that names neither the item nor the step. Exceptions from transforms (lines 53-54) carry no step name or record index.
+9. register (lines 14-19): a duplicate name silently replaces the earlier function, including a built-in such as "normalize_value". The decorator does not check that fn is callable or that name is a non-empty string.
+
+(3) Improvement suggestion:
+Remove the step-order dependency in add_flag by sharing one conversion helper between the two transforms. Bad input then gets the same treatment in both places.
+
+    def to_float(value) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return 0.0
+
+
+    @register("normalize_value")
+    def normalize_value(record: dict) -> dict:
+        out = dict(record)
+        out["value"] = to_float(out.get("value", 0))
+        return out
+
+
+    @register("add_flag")
+    def add_flag(record: dict) -> dict:
+        out = dict(record)
+        out["flagged"] = to_float(out.get("value", 0)) > 100
+        return out
+
+If you want bad values to fail loudly instead of becoming 0.0, have to_float raise, and catch the error in apply() so it can report the step name and record index. Pick one policy for both transforms. The helper does not fix NaN (item 3). Add a math.isfinite check to to_float if NaN should count as bad input.
+
+validator.py
+
+(1) What it does:
+The module registers validation rules by name through the @rule decorator, which stores each function in the module-level dict _RULES. validate() runs a chosen set of those rules (or all of them when none are named) against every record in a list. It returns a ValidationReport holding total, passed, and failed counts plus one RecordResult per record. Three rules ship with the module: has_id, value_non_negative, and name_not_empty.
+
+(2) Bugs / unhandled edge cases:
+1. validate, line 69: "rules or list(_RULES)" treats an empty list as "no argument". validate(records, rules=[]) runs every rule instead of none.
+2. validate, lines 78 and 82: rule exceptions are not caught, and neither is a non-dict record. A None, string, or list in records raises AttributeError at record.get inside the first rule (for example line 26 in has_id), or at line 82 if no rule touches it first. One bad record aborts the whole batch.
+3. has_id, line 26: "not record.get('id')" rejects falsy but valid ids such as 0. The message "missing or empty 'id'" is then wrong for id=0. A whitespace-only id such as "   " passes.
+4. value_non_negative, line 34: float("nan") and float("inf") are not less than 0, so NaN and infinity pass. The string "nan" passes too.
+5. value_non_negative, line 34: a missing 'value' key defaults to 0 and passes. An explicit None fails with "not numeric". The two cases are handled differently with no stated reason.
+6. value_non_negative, lines 34 and 36: a very large int such as 10**400 makes float() raise OverflowError. The except clause on line 36 catches only TypeError and ValueError, so the exception escapes validate().
+7. value_non_negative, line 34: booleans pass as numbers, because float(True) is 1.0.
+8. name_not_empty, line 43: str(None) is "None", which is not empty. A record with "name": None passes. A name of 0 also passes, because it becomes "0".
+9. ValidationReport.ok (lines 63-64) and validate (lines 87-91): an empty records list gives total=0, failed=0, and ok=True. An empty input passes with no error.
+10. rule decorator, line 19: registering a second rule under an existing name silently replaces the first. Import order decides which version runs.
+11. validate, line 77: a name listed twice in rules runs twice and repeats its failure messages.
+12. Error reporting: each failure is a single string such as "has_id: missing or empty 'id'". Callers cannot read a field name or error code without parsing that string.
+
+(3) Improvement suggestion:
+Isolate failures per record so that one bad record or one broken rule does not stop the batch. Fix the empty-rules check in the same edit. Sketch:
+
+    def validate(records, rules=None):
+        active_rules = list(_RULES) if rules is None else rules
+        unknown = [r for r in active_rules if r not in _RULES]
+        if unknown:
+            raise ValueError(f"Unknown rules: {unknown}")
+
+        results = []
+        for record in records:
+            if not isinstance(record, dict):
+                results.append(RecordResult(
+                    record_id="(not a dict)",
+                    passed=False,
+                    failures=[f"record is {type(record).__name__}, expected dict"],
+                ))
+                continue
+            failures = []
+            for rule_name in active_rules:
+                try:
+                    msg = _RULES[rule_name](record)
+                except Exception as exc:
+                    msg = f"rule raised {type(exc).__name__}: {exc}"
+                if msg:
+                    failures.append(f"{rule_name}: {msg}")
+            results.append(RecordResult(
+                record_id=str(record.get("id", "(no id)")),
+                passed=not failures,
+                failures=failures,
+            ))
+        # counting code unchanged
