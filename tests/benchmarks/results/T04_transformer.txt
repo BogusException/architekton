@@ -1,0 +1,55 @@
+Purpose
+transformer.py holds a registry of named record transformations and one function, apply(), that runs a list of those names in order over a list of record dicts. The file imports only typing.Callable. Its only state is the module-level dict _REGISTRY (line 11), which the decorator fills when the module is imported. The file does not show its callers, so I cannot confirm from this file which small_project module calls apply() or which step list it passes. Its place in the pipeline depends on that caller, and I did not read the other modules for this summary.
+
+Key functions
+
+register(name: str)
+Inputs: a string name. Returns a decorator that takes a function fn typed Callable[[dict], dict]. The decorator stores fn in _REGISTRY under name (line 17) and returns fn unchanged (line 18), so the decorated function can still be called directly. A duplicate name replaces the earlier entry without an error.
+
+normalize_value(record: dict) -> dict (lines 22-30, registered as "normalize_value")
+Inputs: one record dict. Output: a new dict (line 25) in which "value" is float(record.get("value", 0)) (line 27). If the conversion raises TypeError or ValueError (lines 28-29), "value" is set to 0.0. All other keys are copied unchanged. The input dict is not modified.
+
+strip_whitespace(record: dict) -> dict (lines 34-36, registered as "strip_whitespace")
+Inputs: one record dict. Output: a new dict built by a comprehension. Each value that is a str is replaced by its strip() result. Values of any other type, including nested dicts and lists, are passed through as they are. Keys are not stripped.
+
+add_flag(record: dict) -> dict (lines 40-44, registered as "add_flag")
+Inputs: one record dict. Output: a new dict (line 42) with "flagged" set to True when float(record.get("value", 0)) is greater than 100 (line 43), otherwise False. A value of exactly 100 is not flagged. The function has no exception handling, so a value that cannot be converted to float raises out of the call.
+
+apply(records: list[dict], steps: list[str]) -> list[dict] (lines 47-55)
+Inputs: records, a list of record dicts, and steps, a list of registered names. Lines 49-51 check every name before any record is processed and raise ValueError listing all unknown names. Line 52 makes a shallow copy of the record list. Lines 53-54 then run each step in order, replacing the whole list with that step's output for every record. Returns the final list. A name in steps may appear more than once, and the step runs once for each appearance. An empty steps list returns a new list that holds the same dict objects as records.
+
+Design choices
+
+Each transform returns a new dict and does not mutate its input. All four functions build a new dict (lines 25, 36, 42), so the caller's record dicts are unchanged after apply(). The copy is shallow. A nested list or dict inside a record is the same object in the input and the output.
+
+Composition is a linear chain. Each step receives the full output of the step before it. Each step builds a complete new list (line 54), so memory use grows with the record count times the number of steps held at once. Nothing is streamed.
+
+Transforms are chosen by string name. A pipeline can therefore come from data, such as a config file, and it can be checked once, up front, at lines 49-51. The check covers only whether a name exists, not whether the steps are in a sensible order.
+
+The registry is a module global filled at import time. Registration stays next to each function, but importing another module can change what apply() accepts. Tests that register extra names share that state unless they clean up after themselves.
+
+Coercion is in normalize_value only. add_flag does its own float() conversion (line 43) instead of calling normalize_value, and nothing forces normalize_value to run first. Step order is therefore the caller's responsibility.
+
+Risks and missing error handling
+
+1. Lines 27-29: A bad value becomes 0.0 with no signal. Failure: a value of None, "N/A", or "" is stored as 0.0, which looks like a real measurement. Totals and flags built on it are wrong and nothing reports the problem. Fix: keep the original value and add an error field, or raise, so the caller decides.
+
+2. Line 27: A missing "value" key is treated as 0 and the key is added. Failure: a record that never had a value passes as 0.0 and is counted as valid downstream. Fix: read record["value"] and treat a missing key as an error, or pass an explicit default.
+
+3. Line 27: float() accepts "nan", "inf", "-inf", and "1e400", and it accepts True as 1.0. Failure: a NaN value stays NaN, and add_flag (line 43) evaluates NaN > 100 as False, so the record is marked not flagged with no sign that the input was bad. Fix: after the conversion, check math.isfinite() and treat a non-finite result as invalid.
+
+4. Line 43: add_flag does not catch TypeError or ValueError. Failure: a record with "value": None or "value": "abc" raises from add_flag. apply() has no handler (line 54), so the whole batch fails, and the records already processed are lost. Fix: catch the conversion error and set flagged to False, or drop or mark the bad record before the batch runs.
+
+5. Lines 43 and 47-55: Step order is not enforced. Failure: if add_flag runs before normalize_value, a value such as " 150 " is converted by float(), but a value such as "n/a" crashes in add_flag before normalize_value can clean it. Fix: have add_flag use the same coercion helper as normalize_value, or make apply() run normalize_value first.
+
+6. Line 36: strip_whitespace ignores nested values and keys. Failure: {"name": {"first": " Ada "}} and {"tags": [" a "]} are returned unchanged. Fix: recurse into dicts and lists, or document that only top-level string values are stripped.
+
+7. Lines 14-18: register() replaces duplicate names without an error. Failure: a second module that registers "add_flag" replaces the built-in, and its results change with no warning. Fix: raise ValueError on a duplicate name unless the caller passes replace=True.
+
+8. Lines 49-51: The unknown-name check assumes each step is hashable. Failure: a step given as a list, such as ["add_flag", ["normalize_value"]], raises TypeError: unhashable type at line 49 instead of the intended ValueError. A None step produces a message that does not explain the problem. Fix: check isinstance(step, str) first and raise ValueError for any other type.
+
+9. Line 54: Errors from transforms have no context. Failure: if a transform raises on record 812 of 5000, the traceback shows the function but not the step name or the record index. Fix: wrap each call and re-raise with the step name and the record index.
+
+10. Lines 25, 36, 42: Shallow copies share nested objects. Failure: if the caller edits a nested list in an output record, the same list in the input record changes too. Top-level fields are safe. Fix: call copy.deepcopy() in apply() if callers reuse their inputs, or document the shallow behavior.
+
+11. Lines 47-54: The records argument is not checked. Failure: a record that is None or a string raises from inside the first step. For example, dict(None) at line 25 raises TypeError, and the message does not name the bad record. Fix: check isinstance(record, dict) for each record in apply() before the first step runs.
