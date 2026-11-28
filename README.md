@@ -79,6 +79,34 @@ architekton detects the working directory and writes a project-level config alon
 
 ---
 
+## What it is
+
+### 1. Description
+
+Arkitekton is two Claude Code primitives composed together:
+
+  1. A shell wrapper -- a script installed at ~/bin/claude that sits in front of the real
+  claude binary. Every claude invocation goes through it. This is the session-start model
+  selector.
+  2. Claude Code hooks -- two of them, registered in ~/.claude/settings.json:
+    - UserPromptSubmit hook: fires on each prompt, runs architekton-warn.sh -> advisor.py warn
+    - Stop hook: fires at session end, runs cost-journal.sh -> advisor.py session-end
+
+  The Python package (advisor.py, classifier.py, etc.) is not itself a Claude component type
+  -- it's the internal logic those two primitives call out to.
+
+  The job runner adds a third usage pattern: it spawns claude --print subprocesses directly
+  (non-interactive mode), making those instances act as workers dispatched by the
+  orchestrator. That's not a new primitive type; it's just invoking the binary
+  programmatically.
+
+### 2. Bottom line?
+
+So the complete answer: shell wrapper + two hooks + subprocess invocations of the binary. No
+   skills, no agents, no MCP servers.
+
+---
+
 ## What it does
 
 ### 1. Automatic model selection at session start

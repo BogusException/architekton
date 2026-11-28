@@ -1,0 +1,76 @@
+{
+  "status": "pass",
+  "log": "results/20261127_221126/parallel_jobs/P01_20261127_221126/output.log",
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 154.5,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T03:12:00.625455+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T03:13:00.858534+00:00",
+        "project": "small_project",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T03:13:05.375993+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T03:13:22.883892+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T03:13:29.280890+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 13,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T03:13:59.558706+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ]
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 42.21,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T03:14:41.850230+00:00",
+        "project": "results",
+        "model": "sonnet",
+        "turns": 7,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ]
+  },
+  "id": "P01",
+  "name": "Parallel file summaries (auto config)",
+  "category": "parallel_jobs",
+  "cost_note": "$0.02-0.08 (architekton) | $0.05-0.15 (plain)"
+}

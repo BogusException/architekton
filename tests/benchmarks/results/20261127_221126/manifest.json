@@ -1,0 +1,15 @@
+{
+  "run_id": "20261127_221126",
+  "mode": "both",
+  "started_at": "2026-11-27T22:11:26.429490",
+  "dry_run": false,
+  "tests": [
+    {
+      "id": "P01",
+      "category": "parallel_jobs",
+      "status": "pass",
+      "dir": "parallel_jobs/P01_20261127_221126"
+    }
+  ],
+  "finished_at": "2026-11-27T22:14:43.148206"
+}
