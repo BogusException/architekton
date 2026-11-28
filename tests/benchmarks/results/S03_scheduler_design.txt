@@ -1,0 +1,602 @@
+S03 DESIGN: scheduler.py for small_project
+Target directory: tests/benchmarks/sample_jobs/small_project/
+Status: design only. No .py file was created or changed.
+Inputs read: S03_parts/interfaces_load_transform.txt,
+S03_parts/interfaces_validate_report_cli.txt, and all five source files
+(data_loader.py, transformer.py, validator.py, reporter.py, cli.py).
+Constraint: Python 3 stdlib only. No APScheduler, schedule, or tenacity.
+
+Corrections to the task brief, found in the source:
+  a. reporter.write does not append. reporter.py line 57 calls
+     Path(dest).write_text(content), which truncates and overwrites. A retry
+     cannot duplicate output. The real risk is a torn file if the process
+     dies during the write (see section 5 and risk R1).
+  b. validator.validate does not raise on a validation failure. It returns a
+     ValidationReport, and the caller reads report.ok (validator.py lines
+     62-64). "Validation failure" is a result, not an exception.
+  c. No stage raises KeyError for the current code. validator.py line 35
+     reads record['value'] only after record.get("value", 0) returned a
+     negative number, so the key exists. KeyError stays in the permanent
+     list for future rules, but tests cannot reach it through real stages.
+  d. interfaces_validate_report_cli.txt marks csv.Error and load/apply
+     ValueError as "not verified". Both are now verified: data_loader.py
+     raises ValueError at lines 23, 34, 45, and csv.Error comes from
+     csv.DictReader (line 19). csv.Error is not a ValueError subclass.
+
+
+1. PURPOSE AND SCOPE
+
+scheduler.py runs the existing pipeline on a fixed interval, in the same
+order as cli.py lines 54-57:
+  load(path) -> apply(records, steps) -> validate(records, rules)
+  -> write(report, fmt, dest)
+
+scheduler.py owns:
+  - the timing loop, drift correction, and the skip-on-overlap policy
+  - exception classification, per-stage retry, and backoff
+  - one RunResult record per run
+  - structured logging through the logging module
+  - graceful shutdown on SIGINT and SIGTERM
+  - an atomic write of the report file (temp file + os.replace)
+  - startup checks of config (step names, rule names, file suffix, format)
+
+scheduler.py does not own:
+  - parsing, transformation, or validation logic (it calls the four
+    existing public functions and does not copy their logic)
+  - the step and rule registries (transformer._REGISTRY, validator._RULES)
+  - command-line parsing. cli.py stays the one-shot entry point. A
+    "python scheduler.py --config ..." entry point is out of scope for v1.
+  - cron expressions, calendars, time zones, or persistence of state
+    between process restarts
+  - locking against a second scheduler process on the same output_path
+    (see risk R7)
+  - alerting. Callers get RunResult through the on_result callback.
+
+Import style: the existing modules use flat imports ("from validator import
+ValidationReport", reporter.py line 10). scheduler.py must live in the same
+directory and use the same style:
+  from data_loader import load
+  from transformer import apply
+  from validator import validate, ValidationReport
+  from reporter import write
+  from cli import DEFAULT_STEPS, DEFAULT_RULES
+Importing cli is safe because main() runs only under the __name__ guard
+(cli.py line 64). Recommendation 9.6 removes this import later.
+
+
+2. PUBLIC API
+
+Existing functions called, with exact signatures from the source:
+  data_loader.load(path: str) -> list[dict]
+  transformer.apply(records: list[dict], steps: list[str]) -> list[dict]
+  validator.validate(records: list[dict], rules: list[str] | None = None)
+      -> ValidationReport
+  reporter.write(report: ValidationReport, fmt: str = "text",
+      dest: str | None = None)          (no return annotation in source)
+
+New names in scheduler.py:
+
+  LOGGER_NAME = "small_project.scheduler"
+  logger = logging.getLogger(LOGGER_NAME)
+  STAGES = ("load", "transform", "validate", "report")
+
+  @dataclass(frozen=True)
+  class SchedulerConfig:
+      input_path: str
+      output_path: str
+      log_path: str
+      interval_seconds: float = 300.0
+      max_retries: int = 3            # retries after the first attempt
+      backoff_base: float = 1.0       # seconds
+      backoff_max: float = 30.0       # cap for one delay, seconds
+      jitter: bool = True             # full jitter when True
+      fmt: str = "text"               # "text" or "json", for reporter.write
+      steps: tuple[str, ...] = tuple(DEFAULT_STEPS)
+      rules: tuple[str, ...] = tuple(DEFAULT_RULES)
+      run_at_start: bool = True
+      log_max_bytes: int = 5_000_000
+      log_backup_count: int = 5
+      def __post_init__(self) -> None: ...
+
+  __post_init__ raises ValueError when: interval_seconds <= 0;
+  max_retries < 0; backoff_base <= 0; backoff_max < backoff_base; fmt not
+  in {"text", "json"}; rules is empty (validator.py line 69 turns an empty
+  list into "all rules"); Path(input_path).suffix not in {".csv", ".json"}
+  (same case-sensitive check as data_loader.py lines 41-45); output_path
+  is empty (reporter.py line 56 "if dest:" would print to stdout); or
+  output_path resolves to the same file as input_path.
+  Tuples are used because the dataclass is frozen. The scheduler passes
+  list(config.steps) and list(config.rules) to apply and validate.
+
+  @dataclass(frozen=True)
+  class Stages:
+      load: Callable[[str], list[dict]] = load
+      apply: Callable[[list[dict], list[str]], list[dict]] = apply
+      validate: Callable[[list[dict], list[str] | None], ValidationReport] = validate
+      write: Callable[..., None] = write
+  Injection point for tests. Production code uses Stages().
+
+  RunStatus = Literal["ok", "invalid", "error", "aborted"]
+
+  @dataclass(frozen=True)
+  class RunResult: (see section 7)
+
+  def classify(exc: BaseException, stage: str) -> Literal["transient", "permanent"]
+  def backoff_delay(attempt: int, config: SchedulerConfig,
+                    rng: random.Random) -> float
+  def configure_logging(config: SchedulerConfig) -> logging.Handler
+  def check_names(config: SchedulerConfig, stages: Stages = Stages()) -> None
+      Calls stages.apply([], list(config.steps)) and
+      stages.validate([], list(config.rules)). Both functions check names
+      before they touch records (transformer.py lines 49-51, validator.py
+      lines 70-72), so this raises ValueError for an unknown name with no
+      side effects. Called once by Scheduler.__init__.
+
+  def run_pipeline_once(
+      config: SchedulerConfig,
+      *,
+      stages: Stages | None = None,
+      wait: Callable[[float], bool] | None = None,
+      rng: random.Random | None = None,
+      run_id: str | None = None,
+  ) -> RunResult
+      Runs the four stages once with per-stage retry. Never raises for a
+      stage failure; every Exception becomes a RunResult. wait(seconds)
+      sleeps and returns True if shutdown was requested (the semantics of
+      threading.Event.wait). The default is a fresh Event().wait, which
+      never interrupts. run_id defaults to str(uuid.uuid4()).
+
+  class Scheduler:
+      def __init__(
+          self,
+          config: SchedulerConfig,
+          *,
+          run_once: Callable[..., RunResult] = run_pipeline_once,
+          clock: Callable[[], float] = time.monotonic,
+          stop_event: threading.Event | None = None,
+          rng: random.Random | None = None,
+          on_result: Callable[[RunResult], None] | None = None,
+      ) -> None
+      def start(self) -> None
+          Starts run_forever in a non-daemon thread named
+          "small_project-scheduler". Raises RuntimeError if already running.
+          Does not install signal handlers (signal.signal works only in the
+          main thread).
+      def stop(self, timeout: float | None = None) -> bool
+          Sets the stop event. Joins the thread when start() was used.
+          Returns True when the loop has exited. Safe to call twice.
+      def run_forever(self, *, max_runs: int | None = None) -> None
+          Blocks in the calling thread until stop() or a signal. Installs
+          SIGINT and SIGTERM handlers only when called in the main thread,
+          and restores the previous handlers on exit. max_runs is for tests
+          and one-shot use.
+      @property
+      def is_running(self) -> bool
+
+
+3. SCHEDULING MODEL
+
+Fixed interval, not cron-like. The stdlib has no cron parser, the pipeline
+has no calendar need, and a parser would be the largest and least tested
+part of the module. If calendar timing is needed later, Scheduler can take
+a next_due(previous_due: float) -> float callable without an API break.
+
+Drift: ticks are anchored to the start time. Tick k is due at
+t0 + k * interval_seconds, where t0 = clock() when run_forever begins.
+The next due time is computed from t0, never from the end of the last run,
+so run duration does not push later ticks. time.monotonic is the clock, so
+NTP steps and manual wall-clock changes do not move ticks. Wall-clock time
+(datetime.now(timezone.utc)) is used only for RunResult timestamps.
+
+Overlap: runs execute synchronously in the loop thread, so two runs can
+never be active together. When a run ends after one or more due times have
+passed, those ticks are skipped, not queued. The loop jumps to the first
+due time after now and logs one WARNING with the skipped count. No thread
+pool and no lock are needed. A worker thread with a non-blocking Lock was
+rejected: it adds a second thread that shutdown must join, for no gain,
+because skipped ticks would still be dropped.
+
+run_at_start=True runs tick 0 at once. False waits one interval first.
+
+Shutdown: one threading.Event is the only stop signal. The SIGINT and
+SIGTERM handlers call stop_event.set() and do nothing else (no logging in
+the handler, to avoid re-entrant handler I/O). Every wait in the module,
+between ticks and during backoff, is stop_event.wait(timeout), so shutdown
+interrupts it at once. A stage call that is in progress is not interrupted.
+load and write are blocking file calls, so shutdown waits for the current
+stage to finish. If shutdown happens during a backoff wait, the run ends
+with status "aborted" and the loop exits. A temp file from an aborted write
+is removed in a finally block.
+
+
+4. ERROR HANDLING
+
+classify(exc, stage) applies these rules in order. First match wins.
+
+  1. TimeoutError, InterruptedError, BlockingIOError, ConnectionError
+     -> transient. (All are OSError subclasses, so they must come first.)
+  2. FileNotFoundError, stage "load" -> transient. The input file can be
+     missing while an upstream job replaces it.
+     FileNotFoundError, stage "report" -> permanent. The parent directory
+     of output_path does not exist and will not appear by itself.
+  3. PermissionError, IsADirectoryError, NotADirectoryError -> permanent.
+  4. Other OSError with errno in {EAGAIN, EBUSY, EIO, ESTALE, ENOSPC}
+     -> transient. ESTALE covers NFS handles. ENOSPC can clear when logs
+     rotate.
+  5. Any other OSError -> permanent.
+  6. ValueError (this covers json.JSONDecodeError, UnicodeDecodeError, and
+     UnicodeEncodeError), KeyError, TypeError, AttributeError, csv.Error,
+     RecursionError -> permanent.
+  7. Any other Exception -> permanent, logged with a traceback.
+  BaseException that is not Exception (SystemExit, KeyboardInterrupt) is
+  not caught. With the handlers installed, SIGINT does not raise
+  KeyboardInterrupt in the main thread.
+
+Per stage, from the source:
+
+  load (data_loader.load):
+    transient: FileNotFoundError (lines 18, 31), EIO/ESTALE on read.
+    permanent: ValueError for missing CSV columns (line 23), non-array
+    JSON (line 34), bad suffix (line 45, also blocked at config time);
+    JSONDecodeError (line 32); UnicodeDecodeError (lines 18, 31, locale
+    encoding); csv.Error (line 19); RecursionError; PermissionError;
+    IsADirectoryError.
+  transform (transformer.apply):
+    permanent only. ValueError for unknown steps (line 51, also blocked by
+    check_names). AttributeError from strip_whitespace (line 36) when a
+    JSON element is not a dict. TypeError or ValueError from dict(record)
+    (lines 25, 42). With DEFAULT_STEPS, normalize_value runs before
+    add_flag, so add_flag (line 43) does not raise on bad values. A custom
+    steps order with add_flag first raises ValueError on "" or "abc".
+  validate (validator.validate):
+    permanent only. ValueError for unknown rules (line 72, also blocked by
+    check_names). AttributeError when a record is not a dict (lines 26,
+    43, 82). report.ok == False is not an exception. It gives status
+    "invalid" and the report is still written.
+  report (reporter.write, with dest set):
+    transient: EIO, ENOSPC, EBUSY from write_text (line 57) or os.replace.
+    permanent: FileNotFoundError (missing parent dir), PermissionError,
+    IsADirectoryError, UnicodeEncodeError (line 57 has no encoding).
+
+A failed run never stops the loop. run_pipeline_once catches Exception per
+stage and returns a RunResult. Scheduler.run_forever also wraps the
+run_once call and the on_result callback in try/except Exception, logs at
+ERROR, and continues, so a bug in the scheduler or in a callback cannot
+end the process. Only config errors raise, and they raise from
+SchedulerConfig.__post_init__ or Scheduler.__init__, before the loop.
+
+
+5. RETRY LOGIC
+
+Choice: per-stage retry. Each stage gets up to max_retries + 1 attempts.
+Reason: the only stages with transient failures are load and report. A
+transient write failure must not re-read the input. A second read could
+see a newer file, and the report would then describe data that did not
+fail. Per-stage retry writes the same in-memory report that the run
+validated. transform and validate have no transient failures in the
+current code, so whole-pipeline retry would only repeat pure work.
+
+Backoff, full jitter (attempt counts from 1, the attempt that just failed):
+  cap = min(backoff_max, backoff_base * 2 ** (attempt - 1))
+  delay = rng.uniform(0, cap) if jitter else cap
+Defaults (base 1.0, max 30.0, max_retries 3): caps of 1, 2, 4 seconds.
+The rng is a random.Random instance passed in, so tests can seed it.
+
+Max attempts: max_retries + 1 per stage. A permanent error stops the stage
+at once. When attempts run out, the run ends with status "error".
+
+Time budget: retries can make a run longer than interval_seconds. Those
+ticks are skipped by the overlap rule. __post_init__ logs a WARNING (not
+an error) when max_retries * backoff_max > interval_seconds.
+
+Idempotency, per stage, from the actual code:
+  load: read only (lines 18, 31). Safe to retry. Not snapshot-stable: the
+    file can change between attempts. This is acceptable because nothing
+    downstream has run yet.
+  transform: pure. Returns new dicts (lines 25, 36, 42, 52-54). Safe.
+  validate: pure. Builds a new ValidationReport (lines 74-93). Safe.
+  report: overwrite (line 57), so a retry leaves the same final content.
+    Not atomic: a crash during write_text leaves a truncated file that a
+    reader can see. FLAGGED. The scheduler must not pass output_path to
+    write directly. It passes dest=f"{output_path}.{run_id}.tmp" in the
+    same directory, then calls os.replace(tmp, output_path), which is
+    atomic on POSIX for the same filesystem. Each retry rewrites the same
+    temp file. The temp file is unlinked in a finally block on failure.
+    The stdout branch (lines 58-59, dest None) is not idempotent and uses
+    print. __post_init__ rejects an empty output_path, so the scheduler
+    never reaches that branch.
+
+
+6. LOGGING
+
+Logger: logging.getLogger("small_project.scheduler"). No print calls. No
+logging.basicConfig. The module never configures the root logger.
+
+Every record carries these fields through extra=:
+  run_id       uuid4 string, or "-" for scheduler-level events
+  stage        load | transform | validate | report | "-"
+  attempt      int, 1-based, or "-"
+  duration_ms  int, from time.perf_counter, or "-"
+  outcome      ok | invalid | transient | permanent | exhausted | aborted
+               | skipped | started | stopped
+A logging.Filter on the handler fills missing fields with "-", so the
+format string never raises KeyError on a record from another call site.
+
+Format (key=value, one line, grep-friendly):
+  "%(asctime)s %(levelname)s %(name)s run_id=%(run_id)s stage=%(stage)s
+   attempt=%(attempt)s duration_ms=%(duration_ms)s outcome=%(outcome)s
+   %(message)s"
+
+Levels:
+  DEBUG    stage start; computed backoff delay; next due time
+  INFO     scheduler start and stop; stage ok; run ok with record counts
+           (report.total, report.passed, report.failed)
+  WARNING  transient failure with retry scheduled; skipped ticks; run
+           "invalid" (report.ok False); "aborted" by shutdown; input file
+           missing at startup; retry budget longer than interval
+  ERROR    permanent failure; retries exhausted; exception from on_result.
+           logger.exception (with traceback) only for rule 7 of classify,
+           where the type is unexpected. Known types log type and message
+           only.
+
+configure_logging(config) attaches
+  RotatingFileHandler(config.log_path, maxBytes=config.log_max_bytes,
+      backupCount=config.log_backup_count, encoding="utf-8", delay=True)
+to the named logger, sets level INFO, and sets propagate=False to prevent
+double output when the host also logs to root. It is idempotent: it
+returns the existing handler if one for the same log_path is attached.
+run_forever does not call it. The caller decides, so tests can attach a
+handler that captures records in memory.
+
+
+7. RUN RESULT RECORD
+
+  @dataclass(frozen=True)
+  class RunResult:
+      run_id: str
+      started_at: datetime            # UTC, timezone-aware
+      finished_at: datetime           # UTC, timezone-aware
+      status: RunStatus               # "ok" | "invalid" | "error" | "aborted"
+      failed_stage: str | None        # one of STAGES, None when ok/invalid
+      attempts: dict[str, int]        # e.g. {"load": 2, "transform": 1, ...}
+      error: str | None               # "FileNotFoundError: [Errno 2] ..."
+
+Status rules: "ok" when all four stages finish and report.ok is True.
+"invalid" when all four stages finish and report.ok is False (the report
+file was written). "error" when a stage fails permanently or runs out of
+attempts. "aborted" when shutdown interrupts a backoff wait. attempts has
+keys only for stages that ran. error is f"{type(exc).__name__}: {exc}".
+Record counts are not stored here. They are in the log and the report.
+
+
+8. PSEUDOCODE
+
+8a. Main loop (Scheduler.run_forever), 33 lines:
+
+  def run_forever(self, *, max_runs=None):
+      restore = self._install_signal_handlers_if_main_thread()
+      logger.info("scheduler started", extra={"outcome": "started"})
+      t0 = self._clock()
+      k = 0 if self._config.run_at_start else 1
+      runs = 0
+      try:
+          while not self._stop.is_set():
+              due = t0 + k * self._config.interval_seconds
+              if self._stop.wait(max(0.0, due - self._clock())):
+                  break
+              try:
+                  result = self._run_once(self._config, wait=self._stop.wait,
+                                          rng=self._rng)
+                  if self._on_result:
+                      self._on_result(result)
+              except Exception:
+                  logger.exception("run raised; loop continues",
+                                   extra={"outcome": "permanent"})
+              runs += 1
+              if max_runs is not None and runs >= max_runs:
+                  break
+              now = self._clock()
+              next_k = int((now - t0) // self._config.interval_seconds) + 1
+              skipped = next_k - (k + 1)
+              if skipped > 0:
+                  logger.warning("skipped %d tick(s); run overran", skipped,
+                                 extra={"outcome": "skipped"})
+              k = max(k + 1, next_k)
+      finally:
+          restore()
+          logger.info("scheduler stopped", extra={"outcome": "stopped"})
+
+8b. Retry wrapper (used by run_pipeline_once for each stage), 31 lines:
+
+  def _attempt_stage(stage, fn, config, ctx, wait, rng):
+      # ctx holds run_id and the attempts dict for the RunResult
+      max_attempts = config.max_retries + 1
+      for attempt in range(1, max_attempts + 1):
+          ctx.attempts[stage] = attempt
+          log = {"run_id": ctx.run_id, "stage": stage, "attempt": attempt}
+          start = time.perf_counter()
+          try:
+              value = fn()
+          except Exception as exc:
+              ms = int((time.perf_counter() - start) * 1000)
+              kind = classify(exc, stage)
+              if kind == "permanent":
+                  logger.error("%s: %s", type(exc).__name__, exc,
+                      exc_info=_is_unexpected(exc),
+                      extra={**log, "duration_ms": ms, "outcome": "permanent"})
+                  raise StageFailed(stage, exc)
+              if attempt == max_attempts:
+                  logger.error("retries exhausted: %s", exc,
+                      extra={**log, "duration_ms": ms, "outcome": "exhausted"})
+                  raise StageFailed(stage, exc)
+              delay = backoff_delay(attempt, config, rng)
+              logger.warning("transient %s; retry in %.2fs",
+                  type(exc).__name__, delay,
+                  extra={**log, "duration_ms": ms, "outcome": "transient"})
+              if wait(delay):
+                  raise StageAborted(stage, exc)
+              continue
+          ms = int((time.perf_counter() - start) * 1000)
+          logger.info("stage ok", extra={**log, "duration_ms": ms, "outcome": "ok"})
+          return value
+
+StageFailed and StageAborted are private exceptions. run_pipeline_once
+catches them and builds the RunResult with status "error" or "aborted".
+The report stage fn is a closure: stages.write(report, fmt=config.fmt,
+dest=tmp) followed by os.replace(tmp, config.output_path).
+
+
+9. RECOMMENDED CHANGES TO EXISTING MODULES (recommendations only)
+
+  9.1 validator.validate, line 69: "active_rules = rules or list(_RULES)".
+      An empty list runs every rule. Change to
+      "list(_RULES) if rules is None else rules". The scheduler guards
+      this in __post_init__ until the fix lands.
+  9.2 The brief suggests that validate raise a typed ValidationError
+      instead of returning a failed report. I recommend against it. The
+      report is the product: reporter.write needs the failed report to
+      list the failures (reporter.py lines 20-27), and an exception would
+      force the caller to dig the report out of the exception. Keep the
+      return value. The typed error that is worth adding is in 9.4.
+  9.3 reporter.write, line 57: make the write atomic (temp file in the
+      same directory + os.replace) and pass encoding="utf-8". Once this
+      lands, the scheduler can pass output_path directly and drop its own
+      temp-file step. Line 56 "if dest:" also treats "" as stdout; use
+      "if dest is not None:".
+  9.4 data_loader.load_json, lines 33-35: check that each element is a
+      dict and raise ValueError naming the first bad index. Today a JSON
+      element such as "abc" reaches transformer.strip_whitespace (line 36)
+      and fails as AttributeError, which the scheduler must classify as
+      "unexpected" and log with a traceback. A ValueError at load gives a
+      clear message and fails at the stage that owns the input.
+  9.5 data_loader.load_csv line 18 and load_json line 31: open() has no
+      encoding. Use encoding="utf-8-sig". This removes locale dependence
+      for a daemon started with a minimal environment, and it fixes the
+      BOM cases that interfaces_load_transform.txt lists under 1.1 and 1.2.
+  9.6 cli.py lines 16-17: move DEFAULT_STEPS and DEFAULT_RULES to a small
+      shared module (for example pipeline_defaults.py) so scheduler.py
+      does not import the CLI module.
+  9.7 transformer.normalize_value, lines 26-29: bad values become 0.0
+      with no record of the change. That makes validator.value_non_negative
+      lines 36-37 ("not numeric") unreachable with DEFAULT_STEPS, so a file
+      full of bad values gives status "ok". Either keep the original value
+      under a separate key, or run validation before normalize_value. This
+      is a data-quality issue, not a scheduler blocker.
+  9.8 data_loader.load, line 41: the suffix match is case-sensitive, so
+      "DATA.CSV" fails. Use p.suffix.lower(). SchedulerConfig mirrors the
+      current behavior so the two stay consistent.
+
+
+10. TEST PLAN (unittest, to match tests/test_runner.py; no real sleep)
+
+Fakes:
+  FakeClock: holds now (float). Its monotonic() returns now. Passed as
+    clock=.
+  FakeEvent: set(), is_set(), and wait(timeout), which adds timeout to
+    FakeClock.now, records the timeout, and returns is_set(). Passed as
+    stop_event=. Scheduler duck-types the event, so no subclass of
+    threading.Event is needed. A test can call set() from inside a fake
+    stage to simulate a signal at a chosen point.
+  FakeStages: built with a list of outcomes per stage (a value, or an
+    exception instance to raise). Records every call and its arguments.
+  StubRng: uniform(a, b) returns b, so delays equal the cap.
+  Log capture: self.assertLogs("small_project.scheduler", level="DEBUG").
+  Real files only in tempfile.TemporaryDirectory for the atomic-write tests.
+
+classify:
+  test_classify_timeout_is_transient
+  test_classify_file_not_found_transient_in_load_permanent_in_report
+  test_classify_permission_and_isadirectory_are_permanent
+  test_classify_errno_eio_estale_transient_other_oserror_permanent
+  test_classify_json_decode_and_unicode_decode_are_permanent
+  test_classify_csv_error_is_permanent
+  test_classify_unknown_exception_is_permanent
+
+backoff_delay:
+  test_backoff_doubles_until_cap (jitter False: 1, 2, 4, 8, 16, 30, 30)
+  test_backoff_full_jitter_bounds (seeded Random: 0 <= d <= cap, 1000 draws)
+
+SchedulerConfig and check_names:
+  test_config_rejects_empty_rules
+  test_config_rejects_bad_suffix_and_uppercase_suffix
+  test_config_rejects_empty_output_path_and_same_as_input
+  test_config_rejects_backoff_max_below_base
+  test_check_names_raises_for_unknown_step_and_rule (real apply/validate)
+
+run_pipeline_once:
+  test_happy_path_returns_ok_and_calls_stages_in_order
+  test_invalid_report_writes_file_and_returns_invalid
+  test_load_transient_then_success_retries_load_only
+  test_load_permanent_does_not_retry_and_skips_later_stages
+  test_report_transient_retries_write_without_reloading
+  test_retries_exhausted_sets_error_and_attempts_count
+  test_wait_returning_true_gives_aborted_and_removes_temp_file
+  test_atomic_write_leaves_old_file_when_write_fails (real temp dir)
+  test_run_result_timestamps_are_utc_and_ordered
+  test_log_records_carry_run_id_stage_attempt_outcome
+  test_real_pipeline_on_sample_csv_and_json (real Stages, temp dir)
+
+Scheduler:
+  test_ticks_anchor_to_start_time (run takes 2s of fake time, interval
+    10s: due times are 0, 10, 20, not 0, 12, 24)
+  test_overrun_skips_ticks_and_logs_warning (run takes 25s, interval 10s:
+    next run at 30, one WARNING with skipped=2)
+  test_run_at_start_false_waits_one_interval
+  test_failed_run_does_not_stop_loop (run_once raises, max_runs=3, 3 calls)
+  test_on_result_exception_is_logged_and_loop_continues
+  test_stop_during_wait_exits_without_another_run
+  test_start_twice_raises_runtime_error
+  test_stop_joins_thread_and_returns_true (real Event, interval 3600,
+    stop() returns at once because wait is interrupted)
+  test_signal_handlers_installed_and_restored_in_main_thread
+    (signal.getsignal before and after; send SIGTERM via os.kill to self
+    from a side thread, assert loop exits)
+  test_no_signal_handlers_when_run_in_background_thread
+  test_module_has_no_print_calls (ast walk of scheduler.py source)
+
+
+11. OPEN RISKS AND TRADE-OFFS (highest severity first)
+
+  R1 High. Torn report file. reporter.py line 57 is not atomic. If the
+     scheduler skips the temp-file + os.replace step, any reader can see a
+     half-written report. Mitigation is in section 5. os.replace is atomic
+     only on the same filesystem, so the temp file must sit beside
+     output_path, not in /tmp.
+  R2 High. Input read while an upstream writer is mid-write. A truncated
+     JSON file gives JSONDecodeError, classified permanent, so the run
+     fails and the next tick recovers. A truncated CSV is worse:
+     csv.DictReader returns a short last row with None cells, normalize_value
+     turns None into 0.0, and the run can report "ok" on partial data. The
+     correct fix is upstream (write to temp, then rename). A size-and-mtime
+     stability check before load is a possible v2 feature.
+  R3 High. Silent coercion in transformer.normalize_value (see 9.7). The
+     scheduler reports "ok" for data that validation never saw in raw form.
+     Green status does not prove clean input.
+  R4 Medium. A stage in progress cannot be cancelled. stop() waits for the
+     current load or write to finish. A huge file or a hung NFS mount can
+     block shutdown past a systemd TimeoutStopSec. stop(timeout) returns
+     False in that case and the caller decides whether to exit anyway.
+  R5 Medium. FileNotFoundError on load is transient, so a wrong input_path
+     costs max_retries backoff waits every tick, forever. Startup logs a
+     WARNING when the file is missing, but does not refuse to start,
+     because a missing file can be normal before the first upstream drop.
+  R6 Medium. Retry time can exceed interval_seconds, which causes skipped
+     ticks. Shown by the startup WARNING and the skipped-tick WARNING.
+  R7 Medium. No cross-process lock. Two scheduler processes on the same
+     output_path race on os.replace. The last writer wins, and the logs
+     disagree about which report is on disk. fcntl.flock on a lock file
+     fixes it on POSIX only, so it is left out of v1.
+  R8 Low. RotatingFileHandler is not safe across processes. Two processes
+     on one log_path corrupt rotation. Same root cause as R7.
+  R9 Low. Each run overwrites output_path, so earlier reports are lost.
+     The run_id in the log is the only history. A "{run_id}" placeholder
+     in output_path is a possible extension.
+  R10 Low. Module-level registries (transformer._REGISTRY, validator._RULES)
+     are global. A test that calls register() or rule() changes later
+     tests. Tests must use FakeStages or remove what they add.
+  R11 Low. PermissionError is permanent. On Windows, a file locked by an
+     antivirus scan raises PermissionError briefly and would be worth a
+     retry. The target here is Linux, so the rule stays simple.
+  R12 Low. Fixed interval only. If a business rule like "run at 02:00
+     local time" appears, the next_due hook in section 3 is the extension
+     point. A full cron parser in stdlib-only code is not recommended.
