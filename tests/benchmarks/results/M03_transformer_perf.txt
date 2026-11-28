@@ -1,76 +1,137 @@
-File
-tests/benchmarks/sample_jobs/small_project/transformer.py (55 lines, read in full; not modified)
+M03 PERFORMANCE BOTTLENECKS: transformer.py (55 lines)
 
-Summary
-The file has three real cost patterns: one dict copy per step per record, a registry lookup per record per step, and a full list pass per step. Only the dict copies have a measurable effect. Mutating records in place is about 1.15x faster on 10,000 records with three steps, but it breaks the "returns a modified copy" contract that the module docstring states. Hoisting the registry lookups gives about 1.05x. Fusing the steps into one pass gives no measurable gain. The file has no I/O, and step-name validation runs once per call, so neither is a finding.
+Method: static read of the source, plus a timing run on 100,000 records
+(CSV-shaped dicts with 4 string fields, 3 default steps, best of 3, CPython).
+Multipliers marked "measured" come from that run. The others are estimates.
+N+1 patterns: none. I/O: none. The module is pure CPU and memory.
 
-Measured on Python 3.14.4, 10,000 records of four fields, steps normalize_value, strip_whitespace, add_flag, best of 5 runs of 20 calls each (three repeat runs, spread shown):
-- current apply(): 10.1 to 10.4 ms per call
-- registry lookups hoisted out of the loop, otherwise unchanged: 9.5 to 10.0 ms (1.03x to 1.06x)
-- same three functions fused into one pass per record: 10.1 to 10.5 ms (1.0x, no gain)
-- one dict copy per record, then mutating steps: 8.6 to 9.0 ms (about 1.15x)
-- list(records) for 10,000 records: 25 to 40 us
-The step work dominates the cost. The two extra dict copies are about 15% of the current time.
+Baseline: apply(records, 3 steps) on 100k records = 0.131 s.
 
-Ranked findings
+------------------------------------------------------------------
+1. One full pass and one full copy of the data per step  [HIGH]
+------------------------------------------------------------------
+Location: apply(), lines 52-54.
 
-1. Category: unnecessary copies
-Lines: 25 (normalize_value), 36 (strip_whitespace), 42 (add_flag)
-Each step builds a new dict for each record, so a three-step chain allocates three record dicts per record. strip_whitespace also rebuilds every key, even when no string field has surrounding whitespace.
-Fix (changes the step contract: steps mutate the record they receive):
-    def apply(records: list[dict], steps: list[str]) -> list[dict]:
-        unknown = [s for s in steps if s not in _REGISTRY]
-        if unknown:
-            raise ValueError(f"Unknown transformations: {unknown}")
-        fns = [_REGISTRY[s] for s in steps]
-        out = []
-        for r in records:
-            r = dict(r)
-            for fn in fns:
-                r = fn(r)
-            out.append(r)
-        return out
-Then drop the dict copy inside each step and mutate the argument. For example, add_flag becomes: record["flagged"] = float(record.get("value", 0)) > 100; return record
-Estimate: about 1.15x faster (10.1 ms to 8.7 ms per 10,000 records, three steps). Record dict allocations fall from three per record to one. This figure includes the lookup hoisting from finding 2. The saving grows with the number of steps, because the current code adds one copy per step.
-Behavior: safe for apply() itself. apply() copies each input record before the first step, so the caller's records are not changed. Not safe for direct callers of normalize_value, strip_whitespace, or add_flag, or for any code that calls them through _REGISTRY and expects their argument to stay unchanged. Search for those callers before making the change.
-If the step functions must stay pure, finding 2 is the best safe option, at about 1.05x.
-
-2. Category: unneeded re-computation (per-record registry lookup)
-Line: 54
-_REGISTRY[step] runs once per record per step, so N x S dict lookups. Basis: a global load plus dict lookup costs about 30 to 35 ns, three per record is about 100 ns, and the current code spends about 1.0 us per record on three steps. The measured saving from hoisting alone is about 3% to 6%.
-Fix: resolve the functions once, after the unknown-name check:
-    fns = [_REGISTRY[s] for s in steps]
     result = list(records)
-    for fn in fns:
-        result = [fn(r) for r in result]
-    return result
-Estimate: about 1.05x (range 1.03x to 1.06x). Only matters at large N.
-Behavior: identical output and errors.
+    for step in steps:
+        result = [_REGISTRY[step](r) for r in result]
 
-3. Category: N+1 patterns (one full pass per step)
-Lines: 52 to 54
-Each step walks the full list and builds a new intermediate list. For S steps, the code walks the list S times and creates S-1 intermediate lists that are discarded right away.
-Fix (fuse the steps into one pass per record):
+Each step builds a new list of N records, and each step function builds a
+new dict per record (dict(record) at lines 25 and 42, a dict comprehension
+at line 36). With S steps the code allocates S*N dicts and S lists. All but
+the final N dicts are garbage as soon as the next step finishes. Peak memory
+holds two generations of the data at once (the list being read and the list
+being built). The _REGISTRY[step] lookup also runs once per record instead
+of once per step.
+
+Fix: resolve the functions once, then run all of them over each record in a
+single pass. Copy only once per record, at the start of the chain, and let
+steps mutate that copy.
+
     fns = [_REGISTRY[s] for s in steps]
-    def run(r):
+    out = []
+    for r in records:
         for fn in fns:
             r = fn(r)
-        return r
-    return [run(r) for r in records]
-Estimate: about 1.0x, no measurable CPU gain (10.1 ms before, 10.1 ms after). The extra Python function call per record cancels the saved list passes, and the hoisted lookups are already counted in finding 2. The only gain is transient memory: each intermediate list holds N pointers, about 80 KB at N = 10,000 (8 bytes per pointer). Apply only to cut peak memory at very large N.
-Behavior: the output is identical because the step functions are pure. Error order changes. Step-major order raises for the first record that fails in step 1 before any record reaches step 2. Record-major order raises for the first failing record in input order. Both raise the same exception type from the same function. Safe unless a caller depends on which record's error appears first.
+        out.append(r)
+    return out
 
-4. Category: unnecessary copies (input list copy)
-Line: 52
-result = list(records) copies the input list. When steps is not empty, the first comprehension on line 54 discards that copy. The cost is one pointer copy of N elements, about 25 to 40 us at N = 10,000, which is under 0.5% of total time.
-Fix: covered by the fix in finding 1, which builds a new output list and does not copy the input list first. Do not change this on its own.
-Behavior: with an empty steps list, the current code returns a new list. The fix in finding 1 also returns a new list in that case. Safe.
+This keeps the "steps return a copy" contract but drops the intermediate
+lists and the per-record registry lookup. Peak memory goes from about 2N
+records to about N. A larger gain needs the in-place variant below.
 
-Categories with no findings
+Estimated improvement: 1.2x faster, about 1.5x less peak memory.
 
-Blocking I/O: None found. The file imports only typing.Callable. It performs no file, network, or console I/O.
+In-place variant (changes the public contract, so only with a yes): steps
+take and mutate one private copy of each record. Then S*N dict copies become
+N copies.
 
-Repeated validation of the step list: None found. Lines 49 to 51 run once per apply() call, not once per record. The cost is O(S) per call.
+Measured: single-pass with all three steps fused into one dict build
+0.083 s vs 0.131 s = 1.6x faster. Estimated for the in-place variant with the
+registry lookup hoisted: 1.6x to 1.8x.
 
-Repeated float() conversions: None found that is worth changing. Line 43 calls float() on a value that normalize_value (line 27) already converted, when normalize_value runs first. The call costs about 50 ns per record. It cannot be removed, because add_flag is also a registered step and must handle string values when it runs alone.
-Correctness note (not a performance finding): when add_flag runs without normalize_value, a record with value None raises TypeError from line 43, and a non-numeric string raises ValueError. Neither is caught. normalize_value catches both.
+------------------------------------------------------------------
+2. Redundant float() conversion in add_flag  [MEDIUM]
+------------------------------------------------------------------
+Location: add_flag(), line 43.
+
+    out["flagged"] = float(out.get("value", 0)) > 100
+
+When normalize_value ran earlier (the default order), "value" is already a
+float. add_flag converts it again. When normalize_value did not run and
+"value" is a non-numeric string, add_flag raises ValueError and aborts the
+whole batch (a correctness risk, not just speed).
+
+Fix: accept a float already in place and only convert when needed.
+
+    v = out.get("value", 0)
+    if not isinstance(v, float):
+        v = float(v)
+    out["flagged"] = v > 100
+
+Estimated improvement: 1.1x on the add_flag step, under 1.05x on the whole
+chain. Low value alone, but it costs nothing.
+
+------------------------------------------------------------------
+3. strip_whitespace rebuilds every field  [MEDIUM]
+------------------------------------------------------------------
+Location: strip_whitespace(), line 36.
+
+The comprehension runs isinstance() and a method call on every field of
+every record, and creates a new str even when the string has no whitespace
+to strip (str.strip() returns the same object when nothing changes, so the
+allocation is skipped, but the call overhead stays).
+
+Fix: if the input is known to be clean (JSON input usually is), skip the
+step. If the input is CSV with a known set of text columns, strip only those
+columns (for example "name" and "timestamp"; "id" and "value" are consumed
+by later steps anyway).
+
+    out = dict(record)
+    for k in _TEXT_COLUMNS:
+        v = out.get(k)
+        if isinstance(v, str):
+            out[k] = v.strip()
+    return out
+
+Estimated improvement: 1.3x on this step for 4-column records, scaling with
+column count. About 1.1x on the whole chain.
+
+------------------------------------------------------------------
+4. Redundant list(records) copy  [LOW]
+------------------------------------------------------------------
+Location: apply(), line 52.
+
+The copy exists so that an empty steps list returns a new list instead of
+the caller's. With one or more steps the first comprehension already makes a
+new list, so the copy is wasted work.
+
+Measured: 1.5 ms for 100k records, about 1% of total.
+
+Fix: remove it, or fold it into the single-pass loop from item 1.
+
+Estimated improvement: 1.01x.
+
+------------------------------------------------------------------
+5. Dict-per-record storage  [LOW, structural]
+------------------------------------------------------------------
+Each record is a dict with a hash table of its own. For large inputs a
+tuple, a __slots__ class, or a dataclass(slots=True) uses roughly 2x to 3x
+less memory per record. This changes the interface of every module in the
+pipeline, so it is out of scope for a local fix.
+
+Estimated improvement: about 2x memory, 1.2x speed. Not recommended for a
+pipeline this small.
+
+------------------------------------------------------------------
+Ranked summary
+------------------------------------------------------------------
+Rank  Finding                              Est. gain      Effort
+1     Fuse steps into one pass             1.2x to 1.8x   small
+2     Strip only known text columns        1.1x           small
+3     Skip second float() in add_flag      1.05x          trivial
+4     Drop list(records)                   1.01x          trivial
+5     Slots/tuple records                  2x memory      large
+
+Items 1 to 4 combined: about 1.6x to 2x on the transform stage at 100k
+records, if the in-place variant is accepted. About 1.3x without it.

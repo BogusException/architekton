@@ -1,59 +1,132 @@
-File
-====
-tests/benchmarks/sample_jobs/small_project/validator.py (93 lines, Python 3.10+ syntax)
-Measured with Python 3.14.4, best of 5 runs, 10% of records failing all three rules.
+M03 PERFORMANCE BOTTLENECKS: validator.py (93 lines)
 
+Method: static read of the source, plus a timing run on 100,000 transformed
+records (3 default rules, best of 3, CPython). Multipliers marked "measured"
+come from that run. The others are estimates.
+N+1 patterns: none (no lookups against external data). I/O: none.
 
-Summary
-=======
-validator.py is a small, single-pass module with no real algorithmic problem. validate() is O(records x rules), which is the minimum for this design, and there is no regex, no file or network I/O, and no repeated list scan. The only worthwhile changes are micro-optimizations in the validate() hot loop (about 1.2x to 1.3x) and a memory reduction on RecordResult, and both matter only for large inputs.
+Baseline: validate(100k records, 3 rules) = 0.087 s.
 
+------------------------------------------------------------------
+1. Per-record, per-rule indirect call with dict lookup  [HIGH]
+------------------------------------------------------------------
+Location: validate(), lines 75-80.
 
-Ranked findings
-===============
+    for record in records:
+        failures = []
+        for rule_name in active_rules:
+            msg = _RULES[rule_name](record)
 
-1. Per-record, per-rule registry lookup
-   Category: N+1 pattern (rule lookup repeated for every record)
-   Location: validate(), line 78 (`_RULES[rule_name](record)`), inside the loops at lines 75 and 77
-   Description: The rule function is looked up in the _RULES dict (a global load plus a hash lookup) once per record per rule, although the active rule set is fixed before the loop starts. The same loop also does a separate second pass over results at line 87 only to count passes.
-   Fix:
-       fns = [(n, _RULES[n]) for n in active_rules]   # after line 72
-       results = []
-       passed = 0
-       for record in records:
-           failures = []
-           for name, fn in fns:
-               msg = fn(record)
-               if msg:
-                   failures.append(f"{name}: {msg}")
-           ok = not failures
-           passed += ok
-           results.append(RecordResult(str(record.get("id", "(no id)")), ok, failures))
-       # drop the sum() at line 87; use `passed` directly
-   Estimated improvement: about 1.2x to 1.3x faster for validate() as a whole.
-   Basis: benchmark of the original against this version, three runs on Python 3.14.4: 1.31x to 1.35x at 100 records (about 93 us -> 70 us) and 1.26x to 1.31x at 100,000 records (about 105 ms -> 82 ms). Results compared equal.
-   Scale: only matters at large input sizes (thousands of records or more). The gain is a fixed per-iteration saving, so it shrinks as the rule functions get more expensive.
-   Behavior change: none, with one edge case. If a rule is re-registered in _RULES while validate() is running (for example from a rule function), the original picks up the new function mid-run and the fix does not. This is not a realistic case.
+For N records and R rules this runs N*R global-dict lookups (_RULES[...]),
+N*R Python function calls, and N*R repeats of record.get() on the same
+record. The rule names are the same for every record, so the lookup is
+wasted work after the first record.
 
-2. RecordResult has no __slots__
-   Category: unnecessary copies (a per-instance __dict__ allocated for every record). This is the closest of the four named categories.
-   Location: RecordResult, lines 48-52 (decorator at line 48)
-   Description: Each of the N RecordResult objects carries a per-instance __dict__. With one object per input record, this is the largest memory cost in the module.
-   Fix:
-       @dataclass(slots=True)
-       class RecordResult:
-           ...
-   Estimated improvement: about 1.2x less memory (21.4 MB -> 17.4 MB per 100,000 instances, including the failures list) and about 1.07x faster construction (about 32 ms -> 30 ms per 100,000).
-   Basis: tracemalloc and timeit on 100,000 instances (Python 3.14.4, three runs). slots=True needs Python 3.10+, which the file already requires (`str | None` at line 11).
-   Scale: only matters for 100k+ records. Negligible below that.
-   Behavior change: yes, minor. Instances no longer have __dict__, so code that sets extra attributes on a RecordResult or reads vars(result) will break. Equality, repr, and field access are unchanged. reporter.py and cli.py read only the fields record_id, passed, and failures, and no file uses vars(), __dict__, or setattr, so no sibling code breaks.
+Fix: resolve the rule functions once, before the loop.
 
-Categories with no findings
-===========================
-N+1 patterns (record x rule restructuring): None found beyond finding 1. The nested loop at lines 75-85 is the minimum work for per-record, per-rule checks. There is no repeated scan of the same list, and the rules are independent so there is nothing to index or batch.
+    checks = [(name, _RULES[name]) for name in active_rules]
+    for record in records:
+        failures = [f"{name}: {msg}"
+                    for name, fn in checks
+                    if (msg := fn(record))]
 
-Unnecessary copies: None found beyond finding 2. The empty `failures = []` at line 76 is allocated for every record, including passing ones, but the list is stored in RecordResult.failures, so it cannot be shared or skipped without changing the field type from list to tuple. The saving is about 56 bytes per record, under 1.05x, so it is not a finding. `list(_RULES)` at line 69 and the `unknown` comprehension at line 70 run once per call over at most R rules (3 by default), so their cost is not measurable. `results` (line 74) is not an intermediate list. It is returned in the report, so it must be built. The sum() at line 87 is a second pass over results, handled in finding 1.
+This removes N*R dict lookups and replaces the inner append loop with a
+comprehension (fewer bytecode steps per rule).
 
-Unneeded re-computation: None found. There are no regexes (nothing to compile). Schema or rule resolution per record is covered by finding 1. In the rule functions, float() at line 34 and str().strip() at line 43 are needed per record, and the f-strings at lines 35, 37 and 80 run only on failure.
+Estimated improvement: 1.1x to 1.2x.
 
-I/O blocking calls: None found. The module does no file, network, or console I/O.
+Further step (changes the design, so only with a yes): fuse the three
+built-in rules into one function that reads each field once. A hand-inlined
+version of the three rules with the same output was timed at 0.044 s.
+
+Measured: 0.044 s vs 0.087 s = 2.0x faster. The cost is that custom rules
+registered through @rule would not benefit, and the registry becomes less
+useful.
+
+------------------------------------------------------------------
+2. Failure strings built eagerly for every failure  [MEDIUM]
+------------------------------------------------------------------
+Location: line 80 and the rule bodies (lines 27, 35, 37, 44).
+
+Each failure builds a prefixed f-string ("rule_name: msg"), and the rule
+itself often builds another f-string with repr() of the value (line 37).
+On a dirty file where most records fail, this is the dominant cost. On a
+clean file it never runs.
+
+Fix: have rules return a short code or a (name, value) tuple, and format the
+text only in reporter.py when output is rendered. The reporter already
+skips passing records in text mode.
+
+Estimated improvement: 1.3x on inputs with a high failure rate (over 20%).
+No change on clean input.
+
+------------------------------------------------------------------
+3. Second numeric parse of "value"  [MEDIUM]
+------------------------------------------------------------------
+Location: value_non_negative(), line 34.
+
+float(record.get("value", 0)) runs again for every record, even though the
+default pipeline has already normalized "value" to float in
+transformer.normalize_value. Python's float() on an existing float is cheap
+but still a call. When the validator runs on non-normalized data, the cost
+is a real string parse.
+
+Fix: skip the cast when isinstance(v, float).
+
+    v = record.get("value", 0)
+    if not isinstance(v, float):
+        v = float(v)
+
+Estimated improvement: 1.1x on this rule, under 1.05x overall.
+
+------------------------------------------------------------------
+4. Intermediate results list plus a second pass to count  [LOW]
+------------------------------------------------------------------
+Location: lines 74 and 87.
+
+    passed = sum(1 for r in results if r.passed)
+
+This walks the full results list again after the main loop. A counter
+incremented in the loop avoids it. Also, RecordResult objects are built for
+passing records that the text reporter never prints.
+
+Measured: the extra pass is about 4 ms per 100k records (about 5% of
+total).
+
+Fix: count in the loop (passed += not failures).
+
+Estimated improvement: 1.05x.
+
+Memory: RecordResult is a regular dataclass with __dict__. Using
+@dataclass(slots=True) (Python 3.10+) cuts per-record memory by about 40%
+and speeds attribute access slightly. Estimated 1.05x speed, 1.6x less
+memory for results.
+
+------------------------------------------------------------------
+5. str() call and strip() allocation in name_not_empty  [LOW]
+------------------------------------------------------------------
+Location: line 43.
+
+str(record.get("name", "")).strip() allocates a stripped copy just to test
+truthiness. For str inputs str() is a no-op call. For None it produces
+"None", which passes (a correctness bug, not a speed issue).
+
+Fix: test without allocating.
+
+    name = record.get("name")
+    if not isinstance(name, str) or name.isspace() or not name:
+
+Estimated improvement: 1.1x on this rule. Under 1.03x overall.
+
+------------------------------------------------------------------
+Ranked summary
+------------------------------------------------------------------
+Rank  Finding                                  Est. gain     Effort
+1     Resolve rules once, comprehension loop   1.1x to 1.2x  trivial
+1b    Fuse built-in rules (design change)      2.0x measured medium
+2     Defer failure-message formatting         1.3x (dirty)  medium
+3     Skip redundant float()                   1.05x         trivial
+4     Count in loop, slots dataclass           1.05x         trivial
+5     Allocation-free name check               1.03x         trivial
+
+Items 1 to 5 without fusing: about 1.3x. With fusing: about 2x.

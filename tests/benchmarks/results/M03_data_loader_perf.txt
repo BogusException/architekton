@@ -1,58 +1,130 @@
-File
+M03 PERFORMANCE BOTTLENECKS: data_loader.py (45 lines)
 
-tests/benchmarks/sample_jobs/small_project/data_loader.py (45 lines, read only).
-Functions: load_csv (lines 15-26), load_json (lines 29-35), load (lines 38-45).
+Method: static read of the source, plus a timing run on a 100,000-row,
+4-column file in /tmp (best of 3, CPython, warm page cache). Multipliers
+marked "measured" come from that run. The others are estimates.
+N+1 patterns: none. Every function opens one file once.
 
-Summary
+Baseline: load_csv(100k rows) = 0.147 s. load_json(100k rows) = 0.081 s.
 
-The file has three real findings, all about memory or extra copies. It has no per-item calls, no repeated computation, and one open() per file, so there is no N+1 or I/O blocking problem. The multipliers below are estimates from CPython behavior, not measured runs.
+------------------------------------------------------------------
+1. Whole file is materialized before the pipeline starts  [HIGH]
+------------------------------------------------------------------
+Location: load_csv() lines 17-26, load_json() lines 31-35.
 
-Ranked findings
+Both loaders return a complete list[dict]. The pipeline then runs
+transformer.apply (which makes more copies), validator.validate, and
+reporter. Nothing downstream needs random access, but the file is read in
+full, so peak memory is at least the size of the whole parsed dataset, and
+the first output cannot appear until the last row is parsed.
 
-1. Category: unnecessary copies (full materialization)
-   Function: load_csv, lines 17 and 24-26
-   Scope: large inputs only
-   Description: load_csv holds every row dict in one list before it returns. The caller gets no rows until the whole file is parsed, and peak memory grows with the row count. If the caller reads each row once, a generator keeps memory flat.
-   Fix:
-       def iter_csv(path: str):
-           with open(path, newline="") as fh:
-               reader = csv.DictReader(fh)
-               missing = REQUIRED_COLUMNS - set(reader.fieldnames or [])
-               if missing:
-                   raise ValueError(f"CSV missing required columns: {sorted(missing)}")
-               yield from reader
+This is also the main I/O blocking call. open() and the read happen on the
+calling thread, and the rest of the pipeline waits for the entire file.
 
-       def load_csv(path: str) -> list[dict]:
-           return list(iter_csv(path))
-   Estimate: peak memory drops from O(rows) to O(1) for a streaming caller. Basis: measured about 390 bytes per row (200,000 rows, four short fields, Python 3.14.4), so 1M rows hold roughly 400 MB, while a streaming caller holds one row (under 1 KB). The pipeline in cli.py gains nothing today, because transformer.apply() needs the full list.
-   Caveats: load_csv still returns a list, so existing callers see no change. A caller that uses iter_csv gets the memory win. The header check now runs on the first next() call, not on the call to load_csv.
+Fix for CSV: yield rows lazily.
 
-2. Category: unnecessary copies (whole-file read)
-   Function: load_json, lines 31-32
-   Scope: large inputs only
-   Description: json.load reads the entire file into one string, then builds the full object tree. Peak memory is the file text plus the parsed records. The standard json module has no streaming parser for a top-level array.
-   Fix:
-       import ijson  # third-party
+    def iter_csv(path):
+        with open(path, newline="") as fh:
+            reader = csv.DictReader(fh)
+            missing = REQUIRED_COLUMNS - set(reader.fieldnames or [])
+            if missing:
+                raise ValueError(...)
+            yield from reader
 
-       def iter_json(path: str):
-           with open(path, "rb") as fh:
-               yield from ijson.items(fh, "item")
-   Estimate: peak memory falls from roughly 4.5x the file size (measured on a 200,000-record array) to one record at a time. Time gets worse: ijson is a Python-level iterator over a parser and is usually several times slower than json.load, which runs in C. This was not measured because ijson is not installed here.
-   Caveats: ijson.items does not raise on a non-array top level, so the isinstance check at line 33 must stay or be replaced by a peek at the first token. ijson is a third-party package. If the project limits itself to the standard library, use newline-delimited JSON with a line loop instead of a single array.
+transformer.apply and validator.validate would then take iterables. The
+header check still runs before the first row is returned, as long as the
+generator is primed once (call next() or wrap it) so errors still surface
+before output starts.
 
-3. Category: unnecessary copies (redundant dict copy)
-   Function: load_csv, line 25
-   Scope: all input sizes
-   Description: csv.DictReader already creates a new dict for each row and does not keep a reference to it. The dict(row) call on line 25 copies that dict again for no reason. The append loop on lines 24-25 can also be replaced by list(reader).
-   Fix:
-       rows = list(reader)
-   Replace lines 24-25 with the line above. Line 26 (return rows) stays.
-   Estimate: about 1.08x faster on the parse loop. Basis: measured 318 ms with dict(row) versus 294 ms with list(reader) for 200,000 rows (Python 3.14.4, reading from io.StringIO). Memory does not change, because the copied dict is freed right away.
+Fix for JSON: json.load needs the whole document. For large files switch to
+JSON Lines or an incremental parser (third-party ijson, which the project
+rule "stdlib only in the hot path" rules out). With stdlib only, keep
+json.load and accept the memory cost.
 
-Categories with no findings
+Estimated improvement (CSV): about 3x to 5x lower peak memory on large files
+(only one row plus the final report lives at a time, but the report keeps
+per-record results, so the full gain depends on item 1 in validator.py).
+Wall time is unchanged to 1.1x faster. Estimate, not measured.
 
-N+1 patterns: None found. The loops read rows and append them. They make no per-item calls or lookups.
+------------------------------------------------------------------
+2. Redundant dict(row) copy per row  [MEDIUM]
+------------------------------------------------------------------
+Location: load_csv(), lines 24-25.
 
-Unneeded re-computation: None found. The header set (line 20), the missing-column check (line 21), the Path object (line 40), and the suffix checks (lines 41 and 43) each run once per call, not inside a loop.
+    for row in reader:
+        rows.append(dict(row))
 
-I/O blocking calls: None found. Each file is opened once, reads use Python's default buffered I/O, and csv iterates the file lazily. The single json.load read is covered by finding 2 under memory, not here.
+csv.DictReader already returns a fresh dict for every row (a plain dict
+since Python 3.8; an OrderedDict in 3.6 and 3.7). The dict() call makes a
+second copy of every row, and the explicit append loop is slower than
+list().
+
+Fix:
+
+    rows = list(reader)
+
+(After the header check. On Python 3.7 and older, dict() is needed to avoid
+OrderedDict. The code already uses list[dict] and str | None syntax, so the
+project requires 3.10 or later and this concern does not apply.)
+
+Measured: 0.136 s vs 0.147 s = 1.08x faster, and one fewer dict allocated
+per row (about 1.5x less peak memory during the load).
+
+------------------------------------------------------------------
+3. csv.DictReader per-row overhead  [MEDIUM]
+------------------------------------------------------------------
+Location: line 19.
+
+DictReader builds a dict from the header for every row, and it checks for
+blank rows in Python code. For a file with a known, fixed header,
+csv.reader plus a tuple (or a namedtuple) skips that work. Using csv.reader
+and zip(header, row) is not faster, so the real gain only comes if the rest
+of the pipeline accepts tuples. Reading rows as tuples and delaying dict
+creation until a record is validated is a design change.
+
+Estimated improvement: 1.3x to 1.5x on load time, if downstream stages
+accept sequences. Not recommended unless the loader is profiled as the top
+cost on real data.
+
+------------------------------------------------------------------
+4. Text-mode read with default buffering  [LOW]
+------------------------------------------------------------------
+Location: lines 18 and 31.
+
+open(path) decodes with the locale encoding and the default 8 KB buffer
+(or the filesystem block size on newer Python). Two small things help on
+large files:
+
+  a) pass encoding="utf-8" explicitly. This avoids a locale lookup and
+     removes a platform-dependent decode path (it also fixes a latent
+     correctness issue on Windows).
+  b) for json, open in binary mode and call json.load(fh). The stdlib
+     json module decodes bytes itself and skips one decode layer.
+
+Estimated improvement: 1.02x to 1.05x. Not measured.
+
+------------------------------------------------------------------
+5. Path(path) object and suffix check on every call  [NEGLIGIBLE]
+------------------------------------------------------------------
+Location: load(), lines 40-45.
+
+One Path object per file load. Cost is microseconds against a file read.
+Listed so nobody spends time on it.
+
+------------------------------------------------------------------
+I/O blocking summary
+------------------------------------------------------------------
+Single synchronous read per run. Threads or asyncio do not help (one file,
+CPU-bound parsing, the GIL). For many input files, a
+concurrent.futures.ProcessPoolExecutor over files gives close to linear
+speedup per core. The CLI accepts one file today, so this does not apply.
+
+------------------------------------------------------------------
+Ranked summary
+------------------------------------------------------------------
+Rank  Finding                               Est. gain             Effort
+1     Stream CSV rows (generator)           3x to 5x less memory  medium
+2     list(reader) instead of dict(row)     1.08x measured        trivial
+3     Tuple rows instead of DictReader      1.3x to 1.5x          large
+4     Explicit encoding, binary JSON open   1.03x                 trivial
+5     Path() overhead                       none                  skip

@@ -1,40 +1,137 @@
-File
-tests/benchmarks/sample_jobs/small_project/reporter.py (59 lines, read in full, not modified)
+M03 PERFORMANCE BOTTLENECKS: reporter.py (59 lines)
 
-Summary
-The file has two real costs, and both appear only in the JSON path at large record counts. The to_json() function copies every record into a new dict and then holds the whole output string in memory, so peak memory grows with the record count. The text path and the write/print calls are already single-pass and show no bottleneck. At the sample project's size, none of these findings is measurable.
+Method: static read of the source, plus a timing run on a ValidationReport
+with 100,000 records (best of 3, CPython). Multipliers marked "measured" come
+from that run. The others are estimates.
+N+1 patterns: none. The one I/O call is a single write at the end.
 
-Measurements were taken on Python 3.14.4 with synthetic reports of 100,000 records (1 in 10 failing, 2 messages each), best of 5 runs, using io.StringIO instead of disk so the timings do not include disk I/O. Timing scripts were run with python3 -I from /tmp and were not saved to the repo.
+Baseline: to_json (100k records) = 0.061 s (all pass) to 0.089 s (all fail).
+to_text with 100k failing records = 0.028 s.
 
-Ranked findings
+------------------------------------------------------------------
+1. Whole output built in memory before one write  [HIGH on large reports]
+------------------------------------------------------------------
+Location: _text_lines() lines 13-28, to_text() line 32, to_json() lines
+36-50, write() lines 55-59.
 
-1. Category: unnecessary copies (memory and materialization)
-Function: to_json(), lines 41-48 (record dict copy), line 50 (json.dumps), and write(), lines 55-57 (full content string built, then encoded again by Path.write_text).
-Description: Each record is rebuilt as a new dict before serialization, and the full JSON string is materialized in memory before it is written. At 100,000 records the intermediate dict build took about 36 ms of a roughly 77 ms serialization, and peak traced memory was 29.1 MB for an 8.3 MB output.
-Fix: Streaming one record at a time cuts memory but is slower. Measured: 278 ms streamed versus 88 ms buffered, with peak memory of 6.1 MB. Keep the buffered version unless memory is a problem. If it is, stream like this:
+Text mode builds a list of line strings, joins them into one large string,
+and then writes it. JSON mode builds the full nested dict (one dict per
+record), then json.dumps builds the full string, then write_text or print
+sends it. At 100k failing records the intermediate structures are several
+times larger than the final output, and nothing appears on screen until the
+last record is formatted.
 
-    def _stream_json(report, fh):
-        fh.write('{\n  "passed": %s,\n  "total": %d,\n  "pass_count": %d,\n  "fail_count": %d,\n  "records": [' % (
-            json.dumps(report.ok), report.total, report.passed, report.failed))
-        for i, r in enumerate(report.results):
-            fh.write(("," if i else "") + "\n    " + json.dumps({"id": r.record_id, "passed": r.passed, "failures": r.failures}))
-        fh.write("\n  ]\n}")
+Fix: stream. Write each line (or each JSON record) to the destination as it
+is produced.
 
-Note that this changes the byte layout of the output (records are compact, not indented), so the M02 tests must be updated before it ships.
-Estimated effect: streaming gives about 0.3x speed (roughly 3x slower) and about 4.8x lower peak memory (29.1 MB to 6.1 MB) at 100,000 records. Basis: measured on the synthetic run above. Matters only at large input sizes (tens of thousands of records and up). No change is needed at the sample size.
+    def write(report, fmt="text", dest=None):
+        out = open(dest, "w") if dest else sys.stdout
+        try:
+            for line in _text_lines(report):   # make this a generator
+                out.write(line)
+                out.write("\n")
+        finally:
+            if dest:
+                out.close()
 
-2. Category: I/O (output size from serialization)
-Function: to_json(), line 50 (json.dumps(data, indent=2)).
-Description: indent=2 makes the output about 1.6x larger than the compact form. It also disables the C encoder fast path in json, but the measured CPU cost was small (about 1.09x).
-Fix: Use compact output when the file is machine-read only:
+For JSON, write the header fields by hand and emit one json.dumps(record)
+per record, separated by commas, inside "records": [ ... ].
 
-    return json.dumps(data)
+Estimated improvement: 2x to 3x lower peak memory for the output stage on
+large reports. Wall time is about the same (1.0x to 1.1x). Time to first
+output drops from "after everything" to near zero. Not measured.
 
-Estimated effect: about 1.09x less CPU and about 1.6x fewer output bytes (8.1 MB to 5.1 MB at 100,000 records). Basis: measured on the synthetic run. Changes the output format, so this is a choice the user must make. Matters only at large input sizes.
+------------------------------------------------------------------
+2. print() of one huge string to stdout  [MEDIUM]
+------------------------------------------------------------------
+Location: line 59.
 
-Categories with no findings
+A single print() of a multi-megabyte string blocks until the terminal or
+pipe accepts all of it. For a pipe whose reader is slow, the pipeline stalls
+at this call. The stdout buffer is the only mitigation, and it is small.
 
-N+1 patterns: None found. The loops in _text_lines() (lines 23-27) and to_json() (lines 41-48) walk the in-memory report once. No per-item calls, queries, or I/O happen inside them.
+Fix: same as item 1 (smaller writes let a downstream reader start early).
+Avoid sys.stdout.flush() per line, which would make it slower.
 
-Re-computation: None found. report.ok, report.total, report.passed, and report.failed are read a fixed number of times per call, not inside a loop. The text output is built with a list and one "\n".join() (line 32), not with repeated string concatenation.
+Estimated improvement: no CPU gain. Latency to first byte improves
+from the full formatting time to about 0.
 
+------------------------------------------------------------------
+3. indent=2 in json.dumps  [MEDIUM]
+------------------------------------------------------------------
+Location: line 50.
+
+With indent set, the stdlib json encoder skips the C fast path
+(c_make_encoder is only used when indent is None) and falls back to the
+pure-Python iterencode. For 100k records:
+
+Measured: indent=2 0.089 s vs compact (separators=(",", ":")) 0.083 s
+= 1.07x. The gap is small here because the test dicts are small, and the
+output size is also about 1.8x larger with indent. Larger or deeper
+records widen the gap.
+
+Fix: make indent optional (indent=None for machine consumers, which
+is the common use of --format json), or print one compact record per line
+(JSON Lines).
+
+Estimated improvement: 1.07x measured on time, about 1.8x smaller output
+(and so less write time and disk or pipe traffic).
+
+------------------------------------------------------------------
+4. Intermediate record dicts in to_json  [LOW]
+------------------------------------------------------------------
+Location: lines 41-48.
+
+Every RecordResult is copied into a new dict just so json.dumps can
+serialize it. dataclasses.asdict is slower than this hand-built dict, so
+the current code is already the faster of the usual options. Streaming
+(item 1) removes the copy as a side effect, because each dict can be
+discarded right after it is written.
+
+Estimated improvement: included in item 1.
+
+------------------------------------------------------------------
+5. Repeated .append() and f-string per failure line  [LOW]
+------------------------------------------------------------------
+Location: lines 25-27.
+
+Text mode makes one f-string per failing record, plus one per failure
+message. Using lines.extend() with a generator saves method-lookup
+overhead, but the gain is within noise.
+
+Measured: 0.028 s for 100k failing records. Not worth changing alone.
+
+Estimated improvement: 1.05x. Skip.
+
+------------------------------------------------------------------
+6. Passing records are iterated in text mode  [LOW]
+------------------------------------------------------------------
+Location: lines 23-24.
+
+The loop visits all records to find the failures. If validate() kept a
+separate list of failing results, the reporter would iterate only the
+failures. On a file with 1% bad rows, the loop does 100 times the needed
+iterations.
+
+Fix: add failed_results to ValidationReport (or filter once in validator).
+
+Estimated improvement: up to 20x on this loop when failures are rare
+(estimated, loop only). In total reporter time, a clean report is
+already fast, since text mode on a passing report skips the loop
+entirely (line 20), so the real gain shows only on mostly-passing files
+with some failures.
+
+------------------------------------------------------------------
+Ranked summary
+------------------------------------------------------------------
+Rank  Finding                              Est. gain                Effort
+1     Stream output instead of building    2x to 3x less memory     medium
+2     Avoid one giant print()              latency only             small
+3     Drop indent=2 for json               1.07x measured           trivial
+4     Skip intermediate dicts              part of item 1           n/a
+5     f-string / append tuning             1.05x                    skip
+6     Keep a failures-only list            up to 20x on the loop    small
+
+For the sizes this pipeline handles (under 100k records), the reporter takes
+under 0.1 s and is not the bottleneck. Fix items 1 and 3 only if reports
+reach millions of records.

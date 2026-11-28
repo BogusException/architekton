@@ -1,16 +1,125 @@
-File
-tests/benchmarks/sample_jobs/small_project/cli.py (65 lines). Read with siblings data_loader.py, transformer.py, validator.py, and reporter.py to confirm how cli.py calls them.
+M03 PERFORMANCE BOTTLENECKS: cli.py (65 lines)
 
-Summary
-cli.py finds no performance bottleneck in its own code. It makes one call per pipeline stage (load, apply, validate, write) and passes whole lists or reports, so the per-record work happens inside the sibling modules, not in cli.py. Any performance work on this pipeline belongs in transformer.py, validator.py, and data_loader.py.
+Method: static read of the source, plus the stage timings measured for the
+other four modules on 100,000 records (best of 3, CPython).
+N+1 patterns: none. The CLI processes one file per run.
 
-Ranked findings
-None found.
+Stage timings at 100k records (from the other M03 runs):
+  load_csv   0.147 s
+  apply      0.131 s
+  validate   0.087 s
+  to_json    0.061 to 0.089 s   (to_text 0.028 s on a failing report)
+  Total      about 0.43 s
+cli.py itself adds no measurable time. Its cost is the way it chains the
+stages.
 
-Categories with no findings
-N+1 patterns: None found. cli.py line 54 to line 57 call each stage once on the full data set. No per-record call or loop exists in cli.py.
-Unnecessary copies: None found. cli.py does not call list(), dict(), copy(), or slicing. The only data it holds is the result of each stage.
-Unneeded re-computation: None found. The argparse defaults (lines 16-17, 28, 35) and the help f-strings (lines 30, 37) run once at startup. Nothing inside a loop is recomputed.
-I/O blocking calls: None found. cli.py performs no direct file or stdout I/O. The report reaches stdout or the output file through a single call to write() at line 57, which writes the whole report as one string. It does not write per record.
+------------------------------------------------------------------
+1. Stages run strictly one after another, each on the full dataset  [HIGH]
+------------------------------------------------------------------
+Location: main(), lines 54-57.
 
-Out of scope (sibling modules, not cli.py findings): transformer.py line 52 copies the input list with list(records), and line 54 builds a new list for each step. validator.py line 78 looks up each rule by name for every record. data_loader.py line 25 wraps each csv.DictReader row in dict(row), which is already a dict. These are linear costs, and none of them is large at the input sizes this sample uses.
+    records = load(args.file)
+    records = apply(records, args.steps)
+    report = validate(records, args.rules)
+    write(report, fmt=args.format, dest=args.output)
+
+Each call takes the complete list from the previous call. This forces:
+  - a full in-memory copy of the dataset at every stage boundary
+    (loader list, then transformer list or lists, then validator results),
+  - no overlap between reading the file and processing it,
+  - no result at all until the final stage ends.
+
+Fix: connect the stages as generators (iterators) so each record passes
+through load, transform, and validate before the next record is read.
+Memory then depends on the report size and not the input size.
+
+    records = iter_records(args.file)          # generator
+    records = apply_iter(records, args.steps)  # generator
+    report = validate(records, args.rules)     # consumes the stream
+    write(report, ...)
+
+This needs small changes in the other modules (load, apply, and validate
+accept and return iterables). The CLI change is only the wiring.
+
+Estimated improvement: about 2x to 3x lower peak memory. Wall time about
+1.1x to 1.2x faster from better cache locality (each record is touched
+while still warm, instead of four separate passes over the dataset).
+Estimate, not measured.
+
+------------------------------------------------------------------
+2. CPU-bound stages on a single core  [MEDIUM, only for very large input]
+------------------------------------------------------------------
+Location: main(), lines 54-57.
+
+The work between load and report is pure Python and records are
+independent. With the GIL, threads give no speedup. A process pool over
+chunks of records can use all cores.
+
+    with ProcessPoolExecutor() as pool:
+        for chunk_report in pool.map(process_chunk, chunks(records, 10_000)):
+            merge(chunk_report)
+
+Costs: pickling records between processes (about 20% to 40% of the stage
+time at this record size), more code to merge partial reports, and a
+process start cost of about 30 ms to 100 ms.
+
+Break-even for this pipeline is around 200,000 records. Below that the
+single-process path is faster.
+
+Estimated improvement: 2.5x to 3.5x on 4 cores at 1,000,000 records.
+About 0.8x (slower) at 10,000 records. Not measured.
+
+------------------------------------------------------------------
+3. Imports at module top, all executed on every run  [LOW]
+------------------------------------------------------------------
+Location: lines 7-13.
+
+argparse, csv, json, pathlib, dataclasses and typing all load on every
+invocation, even for --format text where json is never used, and for .json
+inputs where csv is never used. Total import time is roughly 15 ms to 25 ms
+(estimate; python -X importtime would give the exact number).
+
+Fix: defer json (in reporter.py) and csv (in data_loader.py) imports into
+the functions that use them.
+
+Estimated improvement: about 1.1x on a tiny input (startup dominated),
+nothing measurable on large input. Not worth the readability cost unless
+the CLI is called thousands of times from a script.
+
+------------------------------------------------------------------
+4. Rule and step defaults are shared mutable lists  [CORRECTNESS, not speed]
+------------------------------------------------------------------
+Location: lines 16-17 and 28, 36.
+
+DEFAULT_STEPS and DEFAULT_RULES are module-level lists passed as the
+argparse default. argparse hands that same list object to the parsed
+namespace. Nothing mutates it today, so there is no bug. Listed so a future
+change that appends to args.steps does not silently edit the module
+default. Use tuples.
+
+No speed impact.
+
+------------------------------------------------------------------
+5. Blocking I/O  [LOW]
+------------------------------------------------------------------
+There is one blocking read at load() and one blocking write at write().
+Both are single, large, sequential transfers, which is the efficient
+pattern. Async I/O would add overhead without any gain. The only useful
+change is streaming (item 1), which lets the write start before the read
+ends.
+
+------------------------------------------------------------------
+Ranked summary
+------------------------------------------------------------------
+Rank  Finding                               Est. gain                 Effort
+1     Chain stages as generators            2x to 3x less memory      medium
+2     Process pool over record chunks       2.5x to 3.5x (above 200k) large
+3     Lazy imports                          1.1x on tiny inputs       small
+4     Tuple defaults                        none (safety)             trivial
+5     Async I/O                             none                      skip
+
+Where the time goes overall (100k records): loader 34%, transformer 30%,
+validator 20%, reporter 14% to 20%. Fixing the transformer (fusing steps)
+and validator (resolving rules once) first gives the best return for the
+effort. The cli.py wiring change is only worth doing together with the
+generator changes in the other modules.
