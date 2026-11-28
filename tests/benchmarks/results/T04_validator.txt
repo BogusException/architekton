@@ -1,0 +1,62 @@
+Purpose
+validator.py checks a list of record dicts against named rules. Each rule is a function that takes one record and returns None when the record passes, or a string that describes the failure. validate() runs the selected rules on every record and returns a ValidationReport. The report holds the total, passed, and failed counts, plus one RecordResult per record.
+
+The module has no imports beyond dataclasses and typing. It does not read files or call the network. Its input is a list of dicts, so it runs after whatever step produces those dicts. The file does not name its callers. The sibling modules (cli, data_loader, reporter, transformer) were not read for this summary, so the exact call site is not confirmed here. The reporter module consumes ValidationReport, which is the only output this file exposes.
+
+Key functions
+rule(name: str) -> decorator
+Decorator factory. Takes a rule name and returns a decorator. The decorator stores the decorated function in the module-level dict _RULES under that name and returns the function unchanged. Registration happens at import time. Registering the same name twice replaces the earlier function without any error (lines 16-21).
+
+has_id(record: dict) -> str | None
+Registered as "has_id". Returns "missing or empty 'id'" when record.get("id") is falsy. Returns None otherwise (lines 24-28).
+
+value_non_negative(record: dict) -> str | None
+Registered as "value_non_negative". Reads record.get("value", 0) and converts it with float(). Returns "'value' is negative: <value>" when the result is below zero. Returns "'value' is not numeric: <repr>" when float() raises TypeError or ValueError. A missing key counts as 0 and passes. Returns None when the value passes (lines 31-38).
+
+name_not_empty(record: dict) -> str | None
+Registered as "name_not_empty". Converts record.get("name", "") with str() and strips whitespace. Returns "missing or empty 'name'" when the result is empty. Returns None otherwise (lines 41-45).
+
+class RecordResult (dataclass)
+Fields: record_id (str), passed (bool), failures (list of str, default empty list). Each failure string has the form "<rule_name>: <message>" (lines 48-52).
+
+class ValidationReport (dataclass)
+Fields: total (int), passed (int), failed (int), results (list of RecordResult, default empty list). The property ok returns True when failed == 0 (lines 55-64).
+
+validate(records: list[dict], rules: list[str] | None = None) -> ValidationReport
+Runs the named rules, or every registered rule when rules is None or empty. Raises ValueError with the list of unknown names before it processes any record. For each record, it calls every active rule in order and keeps every failure. It does not stop at the first failure. The record_id is str(record.get("id", "(no id)")). The function returns a ValidationReport with counts and the list of RecordResult objects (lines 67-93).
+
+Design choices
+Rules are plain functions registered in a dict. Adding a rule means writing one decorated function. No class hierarchy or config file is needed. The rule signature is the same for every rule: a record in, None or a message out.
+
+A failure is a return value, not an exception. A rule that finds a problem returns a string. Only the registry lookup raises, and only for unknown rule names. This keeps bad data from stopping the run.
+
+Error collection is collect-all at two levels. Within a record, every active rule runs, so one record can show several failures. Across records, every record is checked. The caller gets the full picture in one call. The only fail-fast path is the unknown-rule check at line 71, which runs before any record is read. That check fails on a configuration error, and it is the right place for it.
+
+The rule order is the registration order of _RULES when no rule list is given. Python dicts keep insertion order, so the report lists failures in a predictable order. When the caller passes a list, that list sets the order.
+
+The report stores both the summary counts and the full per-record list. The counts are computed from the list (line 87), so they cannot disagree with it. The report holds dataclasses, not dicts, so a caller that needs JSON has to convert it.
+
+The annotations use the str | None form at lines 11 and 25 onward. These are evaluated when the module loads, so the module needs Python 3.10 or later.
+
+Risks and missing error handling
+1. Line 43: a name of None passes. str(None) is "None", which is not empty, so {"id": "1", "name": None} passes name_not_empty. Failure scenario: upstream code writes None for a missing name, and the record is reported as valid. Fix: check that record.get("name") is a str before calling strip().
+
+2. Lines 33-38: a missing value passes, but a value of None fails. A missing key uses the default 0, so it is not negative. A None value reaches float(None), which raises TypeError, and the rule reports "not numeric". The two cases give different results for the same meaning. Fix: pick one rule for absent and None values and apply it in code, for example with an explicit "value" not in record check.
+
+3. Line 34: float() accepts "nan", "inf", and booleans. NaN compares False to 0, so value "nan" passes value_non_negative. Failure scenario: a value of float("nan") or the string "nan" reaches the report as valid. Fix: reject non-finite results with math.isfinite() after float().
+
+4. Line 26: has_id treats 0, False, and "" as missing, so a legitimate id of 0 fails. Failure scenario: a record with id 0 is reported as "missing or empty 'id'" when the id exists. Fix: test for None and "" only, if 0 is a valid id in this data.
+
+5. Line 69: rules or list(_RULES) treats an empty list as "no rules given". A caller that passes rules=[] to run no checks gets every rule instead. Fix: use rules if rules is not None else list(_RULES).
+
+6. Line 26, line 82, and line 77-78: a record that is not a dict (None, a list, a string) raises AttributeError from record.get() inside the rule or at line 82. No try block exists in validate(), so one bad record stops the whole call and no report is returned. Failure scenario: one None entry in a 1000-record list makes validate() raise, and the caller gets no per-record result. Fix: check isinstance(record, dict) per record and record a failure for it, or wrap each rule call in a try block that adds the exception text to failures.
+
+7. Lines 78-80: the check "if msg:" treats an empty string as a pass. A rule that returns "" for a failure is silently accepted. Fix: use "if msg is not None:".
+
+8. Lines 16-19: registering a rule name twice replaces the first function with no warning. Failure scenario: a second module registers "has_id" with a looser check, and the original check no longer runs. Fix: raise ValueError in the decorator when the name is already in _RULES.
+
+9. Lines 81-85 and 82: no check for duplicate ids across records. Two records with the same id both pass has_id. Failure scenario: a batch with repeated ids produces a report with no failures. Fix: add a batch-level check in validate() that counts ids and marks duplicates.
+
+10. Lines 87-91 and 63-64: an empty records list gives total 0, passed 0, failed 0, and ok True. A pipeline that produces no records looks like a pass. Fix: have the caller check report.total > 0, or set ok to False when total is 0.
+
+11. Lines 11 and 25 onward: the str | None annotation needs Python 3.10 or later. On Python 3.9 the module fails at import with TypeError. Fix: add "from __future__ import annotations" at the top, or use Optional[str].
