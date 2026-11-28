@@ -1,0 +1,77 @@
+P03 summary: tests/benchmarks/sample_jobs/small_project/reporter.py (59 lines)
+
+PURPOSE
+
+reporter.py is the last stage of the load-transform-validate-report pipeline. It takes a ValidationReport object from validator.py and turns it into a string. The string is either human-readable text or JSON. It then sends the string to stdout or to a file.
+
+The module has no pipeline logic. It does not load data, change records, or run rules. It only reads these fields from the report: ok, total, passed, failed and results. Each item in results is a RecordResult with record_id, passed and failures. The only project import is ValidationReport (line 10). It is used for type hints only.
+
+cli.py is the expected caller. It runs the earlier stages and then calls write() with the format and destination chosen by the user.
+
+KEY FUNCTIONS
+
+_text_lines(report: ValidationReport) -> list[str]   (private, lines 13-28)
+  Input: a ValidationReport.
+  Output: a list of text lines, with no trailing newline characters.
+  Behavior: always emits four lines: "Validation PASSED" or "Validation FAILED", then Total records, Passed and Failed counts in aligned columns. If report.ok is False, it adds a blank line, a "Failures:" header, and one block for each failed record. Each block has "  Record <id>:" followed by one "    - <message>" line for each failure message. When the report is OK, no per-record detail is printed.
+
+to_text(report: ValidationReport) -> str   (lines 31-32)
+  Input: a ValidationReport.
+  Output: the lines from _text_lines joined with "\n". There is no trailing newline.
+  Behavior: pure function, no I/O.
+
+to_json(report: ValidationReport) -> str   (lines 35-50)
+  Input: a ValidationReport.
+  Output: a JSON string, indented with 2 spaces.
+  Behavior: builds a dict with these keys: "passed" (bool, from report.ok), "total", "pass_count", "fail_count", and "records". "records" is a list with one entry for every record, passed or failed. Each entry has "id", "passed" and "failures". Unlike text mode, JSON mode always lists every record, including those that passed. Pure function, no I/O.
+
+write(report: ValidationReport, fmt: str = "text", dest: str | None = None)   (lines 53-59)
+  Input: the report, a format name, and an optional destination path.
+  Output: returns None.
+  Behavior: if fmt is exactly "json", it calls to_json. For any other value it calls to_text. If dest is truthy, it writes the content to that path with Path(dest).write_text(content). Otherwise it prints the content to stdout. This is the only function with side effects.
+
+DESIGN CHOICES
+
+Two formats. Text is for people. JSON is for programs. The format is a plain string argument, not an enum or a registry of formatters.
+
+Separation of formatting and I/O. to_text and to_json are pure and return strings. Only write() touches stdout or the file system. This makes the formatters easy to test.
+
+Text layout. Fixed-width labels with a colon are used so the numbers line up. Failures are shown only when the run failed. Each failure message is indented under its record. Messages already include the rule name (for example "rule_name: message") because validator.py adds it.
+
+JSON layout. A flat top-level summary plus a list of records. indent=2 makes the file readable and diff-friendly. Default json.dumps settings are used, so non-ASCII characters are escaped as \uXXXX.
+
+Output destination. Output goes to stdout by default. A file is used only when dest is given. The file is written in one call and overwrites any existing file. Nothing is written to stderr.
+
+Newline behavior. print() adds a trailing newline on stdout. write_text() adds none, so a file has no final newline.
+
+Type hints use the "str | None" and "list[str]" syntax, so Python 3.10 or newer is required. Only stdlib modules are used, as the project rules require.
+
+RISKS AND MISSING ERROR HANDLING
+
+1. Unknown format names are silently accepted (line 55). Any fmt other than "json" falls back to text. A typo such as "JSON", "Json" or "jsno" gives text output with no warning. The check is case-sensitive. The caller may believe it got JSON. A ValueError for unknown formats would be safer.
+
+2. Unwritable output path is not handled (line 57). Path(dest).write_text can raise FileNotFoundError (missing parent directory), PermissionError, IsADirectoryError, or OSError (disk full, read-only file system). The function has no try/except and does not create parent directories. Callers must catch OSError themselves, and cli.py has to map it to an exit code.
+
+3. Empty-string destination goes to stdout (line 56). The test is "if dest:", not "if dest is not None". dest="" is falsy, so the report is printed to stdout instead of raising an error or writing a file. This hides a caller bug.
+
+4. Non-atomic overwrite (line 57). write_text truncates the target first and then writes. If the process dies in the middle, or the disk fills, the user is left with a partial or empty file and the old report is lost. There is no temporary file and rename step.
+
+5. No encoding is given to write_text (line 57). The default is the locale encoding. In JSON mode the output is ASCII-safe because of ensure_ascii. In text mode, non-ASCII record ids or failure messages can raise UnicodeEncodeError on a non-UTF-8 locale (for example LANG=C on some systems), or give a file with a different encoding on different machines. The same problem applies to print() on stdout when its encoding is ASCII. Passing encoding="utf-8" would fix the file case.
+
+6. Inconsistent trailing newline (lines 57 and 59). Stdout output ends with a newline. File output does not. Some tools (cat, diff, POSIX text-file rules) expect a final newline. The two destinations produce different bytes for the same report.
+
+7. JSON serialization depends on upstream types (lines 36-50). Today RecordResult.record_id is always a str (validator.py line 82 uses str(...)) and failures are strings, so json.dumps works. But reporter.py does not enforce that. If validator.py is changed to pass raw ids or other objects (datetime, Decimal, set, custom class), json.dumps raises TypeError. The failure comes at write time, after all the earlier work is done. There is no default= handler and no error message that names the offending record.
+
+8. Report fields are trusted without checks (lines 15-27, 36-49). The code assumes that ok, total, passed, failed and results agree. ok comes from failed == 0 (validator.py line 64), but the failure list printed in text mode comes from results. If a report is built by hand or the counts disagree with results, text mode can say "PASSED" while records have failures, or say "FAILED" and print an empty failure list. Passing None or a wrong object type raises AttributeError with no helpful message.
+
+9. Empty input reports PASSED (lines 15, 18). A report with total 0 has failed == 0, so it says "Validation PASSED" with zero records. This can hide a loader problem (empty file, wrong path). The reporter does not flag it.
+
+10. Failure messages are not escaped in text mode (lines 25-27). A message or record id that contains a newline breaks the indentation and can fake extra "Record" or "-" lines. Record ids are not unique, so two records with the same id (or both "(no id)") cannot be told apart in either format.
+
+11. JSON key naming is inconsistent (lines 37-39). The top-level key "passed" is a bool, but "pass_count" is the count. In each record, "passed" is also a bool. In text mode, "Passed" is a count. A reader or a script can confuse the two meanings. There is also no schema version field, so changing keys later would break consumers silently.
+
+12. No size control (lines 23-27, 41-48). Every failure is written. A large failed run produces very large text or JSON, all built in memory as one string before output. There is no limit, no streaming, and no summary mode.
+
+13. No return value or error signal from write() (line 53). It returns None, so a caller cannot get the byte count or the path written. Because stdout failures (for example BrokenPipeError when piped to head) are also not handled, a closed pipe produces a traceback.
+
+14. Docstring coverage is thin. Only write() has a docstring (line 54), and it does not state that unknown formats fall back to text or that exceptions can propagate. to_text and to_json do not state their output format.

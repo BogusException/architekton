@@ -1,0 +1,76 @@
+P03 summary: tests/benchmarks/sample_jobs/small_project/transformer.py (55 lines)
+
+PURPOSE
+
+transformer.py is the "transform" stage of the load-transform-validate-report pipeline. It takes the list of record dicts produced by the loader and applies an ordered chain of named transformations to every record. The result is a new list of record dicts that the validator then checks and the reporter then formats.
+
+The module keeps a private registry (_REGISTRY, line 11) that maps a step name to a function. A function takes one record dict and returns one record dict. The caller selects steps by name, as a list of strings, and apply() runs them in the order given. The caller does not import the step functions. It only needs the names. The module ships with three steps: normalize_value, strip_whitespace and add_flag.
+
+In the pipeline, this module is the only place where data is changed. The loader reads data and the validator and reporter should only read it. The module has no I/O, no logging and no state other than the registry.
+
+KEY FUNCTIONS
+
+register(name: str) -> decorator (lines 14-19)
+  Input: a step name string.
+  Output: a decorator. The decorator stores the decorated function in _REGISTRY[name] and returns the same function unchanged, so the function stays directly callable.
+  Behavior: plain dict assignment at line 17. If the name already exists, the old function is replaced with no warning. The name is not validated.
+
+normalize_value(record: dict) -> dict (lines 22-30), registered as "normalize_value"
+  Input: one record dict.
+  Output: a shallow copy of the record where "value" is a float.
+  Behavior: reads record.get("value", 0) and calls float() on it. If float() raises TypeError or ValueError, "value" is set to 0.0. If the key is missing, the default 0 makes "value" become 0.0, so the key is added to the copy.
+
+strip_whitespace(record: dict) -> dict (lines 33-36), registered as "strip_whitespace"
+  Input: one record dict.
+  Output: a new dict with the same keys. Every top-level value that is a str has leading and trailing whitespace removed. Other values are passed through unchanged.
+  Behavior: one dict comprehension. Keys are not stripped. Nested containers are not visited.
+
+add_flag(record: dict) -> dict (lines 39-44), registered as "add_flag"
+  Input: one record dict.
+  Output: a shallow copy with a new boolean key "flagged". It is True when float(value) > 100, otherwise False.
+  Behavior: reads record.get("value", 0) and converts with float() at line 43. There is no exception handling in this function.
+
+apply(records: list[dict], steps: list[str]) -> list[dict] (lines 47-55)
+  Input: the list of records and the list of step names.
+  Output: a new list holding the transformed records.
+  Behavior: first it collects every step name that is not in _REGISTRY (line 49). If there are any, it raises ValueError listing all of them (line 51) before any record is touched. Then it copies the outer list (line 52). For each step, in order, it rebuilds the list by calling the step on every record (line 54). With an empty steps list it returns a shallow copy of the input list.
+
+DESIGN CHOICES
+
+Step registry and dispatch. Steps are looked up by string name in a module-level dict that is filled at import time by the @register decorator. This lets a CLI or config file pass step names as plain strings, with no import of the functions. Adding a step means writing one function and one decorator line. The cost is hidden global state: the registry is mutable, private, and has no public way to list or inspect the registered names.
+
+Copying versus mutation. Each built-in step builds a new dict (dict(record) at lines 25 and 42, a comprehension at line 36) instead of editing the input dict. The module docstring (lines 2-3) promises "a modified copy". The copies are shallow. Nested lists or dicts inside a record are shared between the input and the output. apply() also copies the outer list (line 52), but the record dicts inside it are the originals until a step replaces them.
+
+Ordering. Steps run in the order the caller gives, and each step sees the output of the previous step. The order changes results. For example, add_flag before normalize_value works on the raw value, and add_flag without normalize_value can raise (see risks). Duplicate step names are allowed and run twice. Execution is breadth-first: step 1 runs over all records, then step 2 runs over all records (line 54). This creates one intermediate list per step.
+
+Fail-fast validation. Unknown step names are rejected before processing starts, and all unknown names are reported together. This means a typo in a step name cannot leave the data half-processed.
+
+Lenient numeric handling. normalize_value converts bad numbers to 0.0 instead of raising. This keeps the pipeline running but hides bad data (see risks).
+
+Types. The module uses built-in generics (dict[str, ...], list[dict]), so it needs Python 3.9 or newer. It uses only the standard library.
+
+RISKS AND MISSING ERROR HANDLING
+
+1. add_flag can crash (line 43). float() is called with no try/except. A value such as "abc", None, or a list raises ValueError or TypeError. This happens whenever add_flag runs without normalize_value before it, or on a record where normalize_value has not run. One bad record aborts the whole apply() call.
+
+2. No record context in errors (line 54). When a step raises, the traceback does not say which record index or step failed. In a large list this makes the bad record hard to find. There is no per-record error handling and no way to skip or collect bad records.
+
+3. Non-dict records are not handled. The loader can return items that are not dicts. dict(None) at line 25 and line 42 raises TypeError. dict("abc") raises ValueError. record.items() at line 36 raises AttributeError. No step checks the type of its input. The signatures promise dict but nothing enforces it.
+
+4. Missing "value" key is silently invented (lines 27 and 43). normalize_value adds "value": 0.0 to a record that did not have the key. add_flag treats a missing value as 0 and sets flagged to False. A validator that checks for the presence of "value" can no longer detect the missing key after normalize_value has run. This changes what the validator sees.
+
+5. Bad numbers are replaced with 0.0 (lines 28-29). A value like "1,000" or "N/A" becomes 0.0, which looks the same as a real zero. The original value is lost. No log line, flag, or error is produced. Also, float() accepts "nan", "inf", "-inf" and "1e999", and it accepts True and False (as 1.0 and 0.0). NaN passes through normalize_value and then add_flag gives False for it (NaN > 100 is False). Inf gives True. A downstream validator may not expect these.
+
+6. Unknown step names raise ValueError (lines 49-51), which is correct, but there are two gaps. First, the caller cannot discover valid names, because _REGISTRY is private and no list function exists. Second, if steps is a plain string instead of a list, the loop iterates over characters, and the error message lists single letters. Nothing checks the type of steps.
+
+7. Input aliasing (lines 52, 54). With an empty steps list, apply() returns a new list that holds the same dict objects as the input. With non-empty steps, nested values (lists or dicts inside a record) are still shared because the copies are shallow (lines 25, 42). A caller that edits the output can change the input. The docstring claim of a "modified copy" is only true for top-level keys. A step that mutates in place would also break the copy promise, and nothing prevents that in a custom step.
+
+8. strip_whitespace covers only top-level string values (line 36). Keys, nested strings, and strings inside lists are not stripped. A key such as " name " stays unchanged.
+
+9. Silent overwrite in register (line 17). Registering a second function under an existing name replaces the first with no warning. Re-importing the module, or a typo that reuses a built-in name, changes behavior with no signal. The registry is global, so tests that register extra steps leak into other tests unless they clean up.
+
+10. Memory use (line 54). Each step builds a full new list, so peak memory is about two lists of records at once. This is fine for small inputs. It is not suited to very large inputs. A generator-based pipeline or a single pass over each record with all steps would avoid the extra lists.
+
+11. Docstring and name mismatch for add_flag (line 41). The docstring says "True when value > 100". The code compares after float() conversion, so the string "150" gives True, and a missing key gives False. The docstring does not mention the float conversion or the crash on bad input.
+
+12. No type check on the registered function. register() accepts any callable and any name type (line 14). A non-string name or a function with the wrong signature is accepted at import time and fails later inside apply().

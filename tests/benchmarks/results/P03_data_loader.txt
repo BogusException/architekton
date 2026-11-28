@@ -1,0 +1,73 @@
+SUMMARY OF data_loader.py
+Source: tests/benchmarks/sample_jobs/small_project/data_loader.py (45 lines)
+
+PURPOSE
+
+data_loader.py is the first stage of the load-transform-validate-report pipeline. It reads a CSV file or a JSON file from disk and returns the records as a list of dicts. The next stage (transformer) receives that list.
+
+The module has one validation step. For CSV input, it checks that the header row contains the required columns: id, name, value, timestamp (REQUIRED_COLUMNS, line 12). If a column is missing, it raises ValueError. It does not parse or convert values. It does not look at the content of any row. Content checks belong to the validator stage later in the pipeline.
+
+The module has no state and no side effects other than reading one file. It imports only the standard library (csv, json, pathlib).
+
+KEY FUNCTIONS
+
+load_csv(path: str) -> list[dict]   (lines 15-26)
+  Input: a path string to a CSV file.
+  Output: a list with one dict per data row. Keys are the header names. Every value is a str, because csv.DictReader does no type conversion.
+  Behavior: opens the file with newline="" (line 18), builds a csv.DictReader, and reads the header names into a set (line 20). It computes REQUIRED_COLUMNS minus the headers. If the result is not empty, it raises ValueError with the sorted list of missing names (line 23). If all columns are present, it copies each row into a plain dict and appends it to a list (lines 24-25). Extra columns that are not required are kept in the output.
+
+load_json(path: str) -> list[dict]   (lines 29-35)
+  Input: a path string to a JSON file.
+  Output: the parsed JSON value, returned as is.
+  Behavior: opens the file (line 31) and parses it with json.load (line 32). If the top-level value is not a list, it raises ValueError that names the actual type (line 34). It does not check what is inside the list. The return annotation says list[dict], but the code does not enforce it.
+
+load(path: str) -> list[dict]   (lines 38-45)
+  Input: a path string.
+  Output: the result of load_csv or load_json.
+  Behavior: it takes the suffix of the path with pathlib (line 40). If the suffix is ".csv", it calls load_csv. If the suffix is ".json", it calls load_json. For any other suffix it raises ValueError with the suffix in the message (line 45). This is the only function the other modules need to call. load_csv and load_json are public by name, so callers can use them directly.
+
+DESIGN CHOICES
+
+File formats: CSV and JSON only. Format is selected by file extension and not by file content.
+
+Parsing approach: the module uses csv.DictReader and json.load from the standard library. No third-party packages are used. The whole file is read into memory in one call. There is no streaming and no lazy iteration.
+
+Return types: both loaders return a list of dicts, so downstream code does not need to know the source format. This hides some differences. CSV values are always strings. JSON values keep their JSON types (int, float, bool, None, nested list or dict). The transformer must handle both cases.
+
+Validation: only load_csv checks required columns. load_json checks only that the top-level value is a list. The two loaders do not apply the same rules to the same kind of data.
+
+Error contract: the module docstring (lines 3-4) says the module raises ValueError with a readable message when validation fails. This is true for the checks in the module. It is not true for file system errors (see risks).
+
+Encoding: not set. Both open() calls (lines 18 and 31) use the default text encoding of the platform, from the locale. On most Linux systems this is UTF-8. On other systems it can differ, and the result can differ between machines.
+
+Typing: the annotations list[dict] need Python 3.9 or newer.
+
+RISKS AND MISSING ERROR HANDLING
+
+1. File errors are not handled (lines 18 and 31). open() can raise FileNotFoundError, PermissionError, and IsADirectoryError. These are OSError subclasses and not ValueError. They go to the caller as they are. The module docstring suggests that errors are ValueError, so a caller that catches only ValueError will crash on a missing file. load() does not check that the path exists before dispatch.
+
+2. Encoding is not specified (lines 18 and 31). If the file is not in the platform default encoding, open() or the read will raise UnicodeDecodeError. UnicodeDecodeError is a subclass of ValueError, so it can look like a validation error but has a different message and no file name. Output of the same file can differ between machines.
+
+3. A UTF-8 BOM breaks the CSV header check (lines 18-21). Spreadsheet tools often write a BOM. With a UTF-8 default and no utf-8-sig, the first header becomes "﻿id". The "id" column then looks missing, and the user sees "missing required columns: ['id']" for a file that looks correct. The fix is encoding="utf-8-sig" for CSV.
+
+4. Malformed CSV rows are not detected (lines 24-25). A row with fewer fields than the header gets None for the missing keys. A row with more fields puts the extra values in a list under the key None. Both pass without any error. Blank values stay as empty strings. Downstream code can fail later with an unclear message.
+
+5. csv.Error is not handled (line 24). The csv module can raise csv.Error during iteration, for example when a field is larger than the field size limit (131072 characters by default) or when the input has a NUL byte in some Python versions. These errors are not ValueError and are not wrapped.
+
+6. Empty and header-only CSV files (lines 20-26). An empty file gives fieldnames of None. The code turns that into an empty set, so the error message lists all four columns as missing. This is correct but hides the real cause (empty file). A file with a header and no rows returns an empty list without warning.
+
+7. Duplicate header names in CSV (line 20). The set removes duplicates, and DictReader keeps only the last value for a repeated name. Data is lost without any message.
+
+8. JSON parse errors are not wrapped (line 32). json.JSONDecodeError is a subclass of ValueError, so it passes as ValueError. The message shows the line and column but not the file path. The caller cannot tell a parse error from the "expected a JSON array" error without checking the type.
+
+9. JSON content is not validated (lines 33-35). The list can contain items that are not dicts, such as numbers, strings, or null. The function returns them as is, and the next stage fails with an AttributeError or TypeError. The REQUIRED_COLUMNS check is not applied to JSON records at all, so a JSON file with missing fields passes this stage while an equivalent CSV file is rejected. JSON also allows the values NaN and Infinity by default in Python, which can cause problems later.
+
+10. Extension handling is strict (lines 40-45). The check is case-sensitive, so "DATA.CSV" and "data.JSON" are rejected. Compound or other extensions such as ".csv.gz" and ".jsonl" are rejected. A path with no suffix gives the message "Unsupported file type: " with an empty value, which is not clear. The loader never looks at the file content, so a JSON file named data.csv fails with a confusing CSV column error.
+
+11. Memory use on large files (lines 17-26 and 31-32). load_csv builds the full list of dicts, and each dict holds its own keys and string values. This uses much more memory than the file size. load_json reads and parses the whole file at once, and the raw text and the parsed object can both exist in memory for a short time. Both functions can fail with MemoryError on large inputs. There is no size limit and no generator option.
+
+12. Unnecessary copy (line 25). In Python 3.8 and newer, DictReader already returns a plain dict, so dict(row) makes an extra copy of every row. It costs time and memory but does not change the result.
+
+13. Weak input typing (lines 15, 29, 38). The functions accept str by annotation. A pathlib.Path works in practice, but None or other types raise TypeError from open() or Path() with no helpful message.
+
+14. Diagnostics: the module has no logging. When a load fails, the only information is the exception text, which in several cases does not include the file path.

@@ -1,0 +1,172 @@
+P03 summary: tests/benchmarks/sample_jobs/small_project/validator.py
+(93 lines, stdlib only: dataclasses, typing)
+
+PURPOSE
+
+validator.py checks a list of record dicts against a set of named rules. It
+is the third stage of the load-transform-validate-report pipeline. The loader
+produces raw records, the transformer reshapes them, and this module decides
+which records are acceptable. It returns a ValidationReport. The reporter
+formats that report as text or JSON, and the CLI uses report.ok to pick the
+exit code.
+
+The module does no I/O and holds no state except the rule registry. Given the
+same records and rule names it returns the same report. It never changes the
+input records.
+
+KEY FUNCTIONS
+
+rule(name: str) -> decorator (line 16)
+  Input: a rule name string.
+  Output: a decorator that stores the wrapped function in the module-level
+  _RULES dict under that name (line 19) and returns the function unchanged,
+  so it stays directly callable. This is how rules are registered, both the
+  three built-ins and any added by calling code.
+
+has_id(record: dict) -> str | None (line 25)
+  Registered as "has_id". Returns "missing or empty 'id'" when record.get("id")
+  is falsy. Returns None otherwise.
+
+value_non_negative(record: dict) -> str | None (line 32)
+  Registered as "value_non_negative". Reads record.get("value", 0) and
+  converts it with float(). If the number is below zero it returns a message
+  that includes the original value. If float() raises TypeError or ValueError
+  it returns "'value' is not numeric: <repr>". A missing "value" key counts
+  as 0 and passes.
+
+name_not_empty(record: dict) -> str | None (line 42)
+  Registered as "name_not_empty". Converts record.get("name", "") with str(),
+  strips whitespace, and returns "missing or empty 'name'" if nothing is left.
+
+RecordResult (dataclass, line 48)
+  Fields: record_id: str, passed: bool, failures: list[str] (default empty
+  list). One instance per input record.
+
+ValidationReport (dataclass, line 55)
+  Fields: total: int, passed: int, failed: int, results: list[RecordResult].
+  Property ok (line 63) returns True when failed == 0.
+
+validate(records: list[dict], rules: list[str] | None = None) -> ValidationReport (line 67)
+  Inputs: the records, and an optional list of rule names.
+  Behavior:
+    1. Choose active rules: the given names, or every registered rule when
+       rules is None or empty (line 69).
+    2. Find names not in _RULES. If any exist, raise
+       ValueError("Unknown rules: [...]") before touching any record
+       (lines 70-72).
+    3. For each record, run each active rule in order. A truthy return value
+       is appended to the failures as "<rule_name>: <message>" (line 80).
+    4. Build a RecordResult. record_id is str(record.get("id", "(no id)")).
+       passed is True when the failure list is empty.
+    5. Count passed records and return a ValidationReport.
+  Output: a ValidationReport. Result order matches input order. Failure order
+  within a record matches the order of active_rules.
+
+DESIGN CHOICES
+
+Rule registry: a module-level dict _RULES filled by the @rule decorator at
+import time. Adding a rule needs one decorated function, with no change to
+validate(). Default rule order is registration order (dict insertion order):
+has_id, value_non_negative, name_not_empty. The registry is private (leading
+underscore) and the module offers no function to list rule names.
+
+Rule contract: a rule takes a record dict and returns None for pass or a
+string for fail. A rule reports its own failure message, and validate()
+prefixes it with the rule name. Rules never raise on purpose. The one
+exception handler, in value_non_negative, converts bad numbers into failure
+messages.
+
+Result structure: two dataclasses. RecordResult holds per-record detail, and
+ValidationReport holds totals plus the list of results. ok is a computed
+property, so it cannot disagree with failed. All failures for a record are
+collected, not just the first. Totals are stored, not computed, so they could
+drift from results if someone builds a report by hand.
+
+Empty rule list: rules=[] is falsy, so "rules or list(_RULES)" (line 69)
+runs ALL rules, not none. None and [] mean the same thing. A caller cannot
+ask for "run no rules". The cli.py --rules option with no values therefore
+runs every rule.
+
+Fail-fast on config, collect-all on data: unknown rule names raise
+immediately, before any record is checked. Bad data never raises. It becomes
+failures in the report.
+
+Empty records: an empty list gives total=0, passed=0, failed=0, ok=True. An
+empty input passes.
+
+RISKS AND MISSING ERROR HANDLING
+
+1. Non-dict records crash the run (lines 26, 34, 43, 82). Each rule calls
+   record.get(...). A None, string, list or number in the records list raises
+   AttributeError. Line 82 would also fail. No type check exists, and the
+   AttributeError is not a ValueError, so callers that catch only ValueError
+   miss it. One bad item aborts the whole run and no partial report is
+   returned.
+
+2. Rules that raise are not caught (line 78). Only value_non_negative guards
+   itself. A custom rule that raises (KeyError, ZeroDivisionError and so on)
+   propagates out of validate() and discards all results gathered so far. The
+   error does not say which rule or record caused it. The loop should wrap
+   the call and record the exception as a failure for that record.
+
+3. Rules that return a non-string or empty string. The check "if msg:" (line
+   79) treats "" and any other falsy value as a pass. A rule that returns
+   False or 0 to mean "failed" silently passes. A rule that returns a truthy
+   non-string (True, a dict) is put into an f-string and gives a vague
+   message. The contract is only in the docstring and is not enforced.
+
+4. Empty rules means all rules (line 69). rules=[] runs everything. A caller
+   that builds a filtered list which ends up empty gets full validation
+   instead of an error or a no-op. The check should be "rules is None".
+
+5. Unknown rule names are found late and only by exception (lines 70-72). The
+   error lists the bad names but not the valid ones, and validate() offers no
+   public way to get them. A string passed instead of a list (for example
+   rules="has_id") is iterated character by character and gives
+   "Unknown rules: ['h', 'a', 's', ...]". Duplicate names in the list are not
+   removed, so a rule runs twice and its failure is reported twice.
+
+6. Missing "value" passes (line 34). The default of 0 means a record with no
+   "value" key is valid. Whether that is right depends on the pipeline, but
+   it is a silent gap, because value_non_negative cannot tell "absent" from
+   "zero". An explicit None gives "'value' is not numeric: None", so absent
+   and None are treated differently.
+
+7. Numeric edge cases in value_non_negative (line 34). float("nan") < 0 is
+   False, so NaN passes. float("inf") passes. Booleans pass (float(True) is
+   1.0). Numeric strings such as "5" pass because float() accepts them, so
+   the rule does not check the actual type. Strings with spaces or
+   underscores, such as " 5 " or "1_0", also convert.
+
+8. Falsy ids are treated as missing (line 26). An id of 0 or "0" is fine as a
+   string, but integer 0 and False fail has_id with "missing or empty".
+   Valid numeric ids starting at 0 would be rejected.
+
+9. name_not_empty accepts the string "None" (line 43). str(None) is "None",
+   which is not empty. A record with {"name": None} therefore passes. The
+   same applies to any non-string name, such as a list or number.
+
+10. record_id can be ambiguous (line 82). "(no id)" is used only when the key
+    is absent. If "id" is present but None or empty, the id becomes "None" or
+    "". Several records can share the same record_id, and the report has no
+    index, so duplicates cannot be told apart in the output.
+
+11. Silent overwrite on duplicate registration (line 19). Registering a name
+    that exists already replaces the old rule with no warning. Two modules
+    that choose the same name will fight, and import order decides the winner.
+    _RULES is also mutable global state shared across all callers and tests.
+
+12. Python version requirement (lines 11, 25). "str | None" in annotations and
+    in the RuleFunc alias is evaluated at import time, so Python 3.10 or newer
+    is needed. On 3.9 the import fails with TypeError. There is no
+    "from __future__ import annotations" and no version check.
+
+13. Report totals are not checked (lines 55-60). total, passed and failed are
+    plain fields that nothing validates. Only ok is derived. The report also
+    has no record index and no copy of the rules that were run, so a saved
+    report does not say which rules produced it.
+
+14. Memory and iteration. validate() builds the full results list in memory.
+    records is iterated once, so a generator works, but total comes from
+    len(results), not len(records). That is fine, but the type hint says
+    list[dict] while the code accepts any iterable.

@@ -1,0 +1,126 @@
+P03 SUMMARY: small_project/cli.py
+Source: tests/benchmarks/sample_jobs/small_project/cli.py (65 lines)
+Line numbers below refer to cli.py unless another file is named.
+
+
+PURPOSE
+
+cli.py is the command-line entry point of the small_project data pipeline. It does no data work itself. It parses arguments, then calls four sibling modules in a fixed order and turns their result into a process exit code.
+
+Pipeline order:
+  1. data_loader.load(path)           -> list[dict] of raw records (CSV or JSON)
+  2. transformer.apply(records, steps) -> list[dict] of transformed records
+  3. validator.validate(records, rules) -> ValidationReport
+  4. reporter.write(report, fmt, dest) -> text or JSON report on stdout or in a file
+
+The exit code is the only machine-readable result besides the report text. 0 means every record passed. 1 means at least one record failed validation. 2 means a caught pipeline error. Because of this, the module works as a subprocess boundary: a benchmark or CI job can run it and read the exit code and output.
+
+The module imports its siblings with flat names (lines 10-13: "from data_loader import load" and so on). It is a script, not a package module.
+
+
+KEY FUNCTIONS
+
+Module constants
+  DEFAULT_STEPS = ["strip_whitespace", "normalize_value", "add_flag"]   (line 16)
+  DEFAULT_RULES = ["has_id", "value_non_negative", "name_not_empty"]    (line 17)
+  These are the same names registered in transformer.py and validator.py. They are plain lists of strings, so cli.py has no compile-time link to the registries. A rename in a sibling module breaks the defaults only at run time.
+
+main()   (lines 20-61)
+  Signature: main() -> None. It takes no parameters and returns nothing. It always ends by calling sys.exit().
+  Input: sys.argv, read implicitly by parser.parse_args() on line 51.
+  Arguments defined (lines 21-50):
+    file         positional, required. Path to a .csv or .json file.
+    --steps      nargs="*", default DEFAULT_STEPS. Zero or more transformation names.
+    --rules      nargs="*", default DEFAULT_RULES. Zero or more validation rule names.
+    --format     choices ["text", "json"], default "text".
+    --output     optional file path, default None (meaning stdout).
+  Behavior inside the try block (lines 53-61):
+    line 54  records = load(args.file)
+    line 55  records = apply(records, args.steps)
+    line 56  report = validate(records, args.rules)
+    line 57  write(report, fmt=args.format, dest=args.output)
+    line 58  sys.exit(0 if report.ok else 1)
+    lines 59-61  on ValueError or FileNotFoundError: print "error: <message>" to stderr, then sys.exit(2).
+  Outputs: the report on stdout or in the --output file, an error line on stderr for caught errors, and the exit code.
+
+Exit codes as implemented
+  0  validation passed (report.ok is True, meaning failed == 0)
+  1  validation completed and at least one record failed
+  2  a ValueError or FileNotFoundError was caught
+  2  also returned by argparse for usage errors (argparse default, not set by this file)
+  1  also returned by Python for any uncaught exception (traceback)
+
+How cli.py uses the siblings
+  load(path: str) -> list[dict]. Raises ValueError (bad extension, missing CSV columns, JSON not an array, malformed JSON) or FileNotFoundError.
+  apply(records, steps) -> list[dict]. Raises ValueError for unknown step names. Each step is run per record.
+  validate(records, rules) -> ValidationReport. Raises ValueError for unknown rule names. Note that an empty or None rules list means "run all rules" (validator.py line 69).
+  write(report, fmt, dest) -> None. Writes to dest with Path.write_text or prints to stdout.
+  report.ok is a property: failed == 0.
+
+
+DESIGN CHOICES
+
+Argument parsing
+  argparse from the standard library, one positional and four options. Help text for the defaults is built with f-strings from the constants (lines 30 and 37), so help output stays in sync with the defaults.
+  --format uses choices, so a bad format is rejected by argparse before any work starts. --steps and --rules have no choices, so a bad name is rejected later by the sibling module with a ValueError.
+  nargs="*" lets a user write "--steps a b c" instead of repeating the flag. The cost is that it consumes every following non-option token.
+  The default is the module-level list object itself, not a copy. argparse does not mutate it here, so this is safe in practice.
+
+Control flow
+  Strictly linear: load, transform, validate, write, exit. No branching other than the final exit-code expression. The report is always written before the exit code is chosen, so a failing run still produces output.
+  sys.exit(0 if report.ok else 1) is placed inside the try block. SystemExit derives from BaseException, so the except clause on line 59 does not catch it. The placement works but looks like it could be caught by mistake.
+  All work happens inside main(). There is no argv parameter and no return value, so tests must run it as a subprocess or patch sys.argv and catch SystemExit.
+
+Exit codes
+  The design is the common three-way split: success, domain failure, usage or input error. It matches how tools like grep and diff use 0 and 1. The weakness is overlap with argparse (2) and the interpreter (1 on a crash). See the risks section.
+
+Error handling
+  Only two exception types are caught, and both are mapped to a single message format and code. The handler prints str(err) with no context about which stage failed. This relies on the siblings raising ValueError for user-facing problems, which is a convention and not enforced.
+
+Module boundaries
+  cli.py holds no business logic. Format selection and file writing are in reporter.py. Extension dispatch is in data_loader.py. Rule and step lookup is in the sibling registries. This is a clean separation and keeps cli.py short.
+  The coupling is by string name only (DEFAULT_STEPS and DEFAULT_RULES), plus the shared expectation that ValueError means "user input problem".
+
+
+RISKS AND MISSING ERROR HANDLING
+
+1. Uncaught OSError subclasses (line 59). Only FileNotFoundError is caught. A directory passed as the file (IsADirectoryError), a file without read permission (PermissionError), or an unwritable --output path with bad permissions (PermissionError from reporter.py line 57) raises a traceback and exits 1. Exit 1 then looks identical to "validation failed". Catching OSError would cover all of these.
+
+2. Exit code 1 is ambiguous (lines 58 and 59). A Python traceback from any uncaught exception also exits 1. A script that tests only "exit code == 1" cannot tell a real validation failure from a crash. The caller must read stderr to know.
+
+3. Exit code 2 is ambiguous (line 61). argparse exits 2 for usage errors (missing file argument, bad --format value). The handler on line 61 also uses 2 for data problems. Two different failure classes share one code.
+
+4. Non-dict JSON items cause unclear failures. load_json (data_loader.py lines 29-35) only checks that the top level is a list. With a file such as [1, 2], strip_whitespace calls .items() on an int and raises AttributeError, which is not caught and exits 1 with a traceback. With [{"a":1}, "abc"] and the default steps, strip_whitespace calls "abc".items() and raises AttributeError, so the run exits 1 with a traceback. If --steps starts with normalize_value or add_flag instead, dict("abc") raises ValueError ("dictionary update sequence element #0 has length 1; 2 is required"). That one IS caught, so it exits 2 with a message that does not mention the real cause (a non-object record).
+
+5. A broad ValueError catch misattributes errors (line 59). Any ValueError from any depth is reported as "error: <message>" with exit 2. Example: run with --steps add_flag only (skipping normalize_value) on a CSV where value is "abc". add_flag (transformer.py line 43) calls float("abc") and raises ValueError("could not convert string to float: 'abc'"). The user sees a bare conversion message and exit 2, with no hint that the step order is the cause. A JSON record with "value": null raises TypeError from float(None). TypeError is not caught, so the run gives a traceback and exit 1. An empty CSV value ("") raises ValueError and exits 2.
+
+6. Empty --rules silently runs all rules (line 56, validator.py line 69). "--rules" with no values gives an empty list, and "rules or list(_RULES)" treats that as "run every rule". A user who intends "no rules" gets all rules, including any not in DEFAULT_RULES. cli.py does not guard this and the help text does not describe it.
+
+7. nargs="*" is greedy (lines 25-38). "cli.py --steps strip_whitespace data.csv" treats data.csv as a second step name and then fails because the positional file is missing (argparse exit 2). Users must put the file first or use "--" to end option parsing. Nothing in the help text warns about this.
+
+8. Empty input passes validation (line 58). A CSV with only a header row, or a JSON file containing [], gives total 0 and failed 0, so report.ok is True and the exit code is 0 with "Validation PASSED". For a data-quality gate, a run that checked nothing should probably be a warning or a failure.
+
+9. JSON input skips column checks. load_csv requires id, name, value, timestamp (data_loader.py lines 12 and 20-23). load_json does not. A JSON file of {"foo": 1} objects loads fine and only fails later in validation rules, or passes if the chosen rules do not look at those fields.
+
+10. File extension matching is case-sensitive (data_loader.py lines 41-45). "DATA.CSV" or "data.JSON" raises ValueError("Unsupported file type: .CSV") and exits 2. Files with no extension fail with the message "Unsupported file type: " and an empty suffix, which is hard to read.
+
+11. Unknown step or rule names are found late (lines 54-56). The file is fully loaded before apply() checks step names, and the transform runs fully before validate() checks rule names. A typo in --rules on a large file wastes the whole load and transform. cli.py could check names up front, but the registries are private (_REGISTRY, _RULES).
+
+12. Output differences between stdout and file (reporter.py lines 55-59). print() adds a trailing newline. Path.write_text(content) does not. A report file has no final newline. Also, with --output set, nothing at all is printed to the console on success or on validation failure, so a failing run looks silent apart from the exit code.
+
+13. Encoding is locale dependent. data_loader.py opens files without encoding= (lines 18 and 31), and reporter.py write_text has no encoding argument. On a non-UTF-8 locale, non-ASCII data can raise UnicodeDecodeError. That is a ValueError subclass, so it exits 2 with a decoder message. A UnicodeEncodeError on write is also a ValueError subclass and is reported the same way. In both cases the message does not say which file or direction failed.
+
+14. Other uncaught paths:
+  - csv.Error (malformed quoting) is not a ValueError and gives a traceback with exit 1.
+  - BrokenPipeError when stdout is piped to a command that closes early (for example "| head -1") gives a traceback.
+  - KeyboardInterrupt gives a traceback and the shell reports 130, with no cleanup or message.
+
+15. Falsy ids fail has_id (validator.py line 26). "if not record.get('id')" treats a numeric id of 0 (possible in JSON) as missing. A JSON record with "id": 0 fails with "missing or empty 'id'" and pushes the exit code to 1 for valid data. This is outside cli.py but decides its exit code.
+
+16. Testability. main() reads sys.argv itself (line 51), calls sys.exit in two places, and has no way to inject paths or streams. Unit tests need subprocess calls or monkeypatching. Accepting argv=None and returning an int, with the sys.exit call only under the __main__ guard, would fix this.
+
+17. Import style. Lines 10-13 use top-level sibling imports with no package. "python path/to/cli.py" works because Python puts the script directory on sys.path. "python -m small_project.cli" or an import from another directory fails with ModuleNotFoundError.
+
+18. Duplicate names are accepted. "--rules has_id has_id" runs the rule twice and repeats each failure message in the report. "--steps" with duplicates re-applies the step. Neither is harmful but both are unvalidated.
+
+Highest priority fixes, in order: catch OSError (item 1), separate the exit code for crashes and usage errors from validation failure (items 2 and 3), guard empty --rules (item 6), and treat zero records as a distinct result (item 8).
