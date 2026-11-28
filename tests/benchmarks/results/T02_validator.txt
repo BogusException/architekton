@@ -1,0 +1,83 @@
+Source: tests/benchmarks/sample_jobs/small_project/validator.py (93 lines)
+
+PURPOSE
+
+validator.py checks a list of record dicts against named rules. Each rule is a function that takes one record and returns None (pass) or a failure string. validate() runs the active rules on every record and returns a ValidationReport with per-record results and overall counts. The module does not raise when records fail. The caller reads report.ok to decide.
+
+
+KEY FUNCTIONS
+
+rule(name: str) -> decorator
+Decorator factory. The returned decorator stores the function in the module-level dict _RULES under name, then returns the function unchanged. Registration happens at import time, once per decorated function.
+
+has_id(record: dict) -> str | None
+Registered as "has_id". Returns "missing or empty 'id'" when record.get("id") is falsy. Returns None otherwise. Falsy values include None, "", and the integer 0.
+
+value_non_negative(record: dict) -> str | None
+Registered as "value_non_negative". Calls float(record.get("value", 0)). Returns "'value' is negative: <value>" when the result is below 0. Returns "'value' is not numeric: <repr of value>" when float() raises TypeError or ValueError. Returns None otherwise.
+
+name_not_empty(record: dict) -> str | None
+Registered as "name_not_empty". Returns "missing or empty 'name'" when str(record.get("name", "")).strip() is an empty string. Returns None otherwise.
+
+RecordResult (dataclass)
+Fields: record_id (str), passed (bool), failures (list of str, default empty list). Each failure string has the form "<rule_name>: <message>".
+
+ValidationReport (dataclass)
+Fields: total (int), passed (int), failed (int), results (list of RecordResult, default empty list). Property ok returns True when failed == 0.
+
+validate(records: list[dict], rules: list[str] | None = None) -> ValidationReport
+Sets active_rules to the rules argument, or to every registered rule name when rules is None or falsy. Raises ValueError("Unknown rules: [...]") if any name is missing from _RULES. This check runs before any record is read. For each record, calls every active rule in order, appends "<rule_name>: <message>" for each failure, and builds a RecordResult. record_id is str(record.get("id", "(no id)")). Counts passed records and returns the ValidationReport.
+
+
+DESIGN CHOICES
+
+1. Each rule is a plain function, registered with a decorator. A new rule needs one decorated function and no change to validate().
+
+2. The rule contract is to return a message or None. Rules report bad data through their return value, not by raising.
+
+3. All active rules run on every record. There is no short-circuit, so one record can show several failures in one pass.
+
+4. Unknown rule names fail fast, before any record is checked.
+
+5. Failures are plain strings that start with the rule name. The report has no structured field for the rule name, the field name, or an error code.
+
+6. The report keeps the full per-record results and the totals. A caller can print the report or serialize it.
+
+7. The registry is a module-level dict. Rules run in registration order, which follows import order, when rules is None.
+
+
+RISKS AND MISSING ERROR HANDLING
+
+Each item gives the line, the function, and the effect. Items that let bad input pass silently come first, then items that stop the run.
+
+1. Line 69, validate: "rules or list(_RULES)" treats an empty list as no argument. A call with rules=[] runs every rule. A caller that filters its list down to nothing gets full validation with no warning.
+
+2. Line 43, name_not_empty: str(None) is the string "None", so a record with "name": None passes this rule. A null name is not caught.
+
+3. Line 34, value_non_negative: float("nan") and float("inf") are accepted. NaN < 0 is False, so NaN passes. float(True) is 1.0, so a boolean value also passes.
+
+4. Line 75, validate: no type check on records. A None, string, or list item reaches the first rule. It then fails on record.get (lines 26, 34, 43) or on line 82. The annotation list[dict] is not enforced at run time.
+
+5. Line 78, validate: no try/except around the rule call. An exception in any rule ends the whole run, so one bad record means no report for any record.
+
+6. Line 82, validate: record_id uses str(record.get("id", "(no id)")). When the id key exists with value None, the label is "None", not "(no id)". When several records lack an id, they share the same "(no id)" label, and the report has no record index, so the caller cannot tell which record failed.
+
+7. Line 26, has_id: falsy ids such as 0 are reported as missing. The code does this without a comment or a separate message, so a valid integer id of 0 fails.
+
+8. Line 79, validate: "if msg:" treats an empty string as a pass. The contract says None means pass. A rule that returns "" passes silently. A rule that returns a non-string value is formatted into the failure string at line 80 without a check.
+
+9. Line 67, validate: the rules argument is not type-checked. A plain string such as rules="has_id" is iterated one character at a time (line 69). The ValueError then lists "h", "a", "s", and so on as unknown rules. The call still fails, but the message does not name the actual mistake.
+
+10. Line 69 and 77, validate: duplicate names in rules, such as ["has_id", "has_id"], are not removed. Each copy runs and adds its own failure string.
+
+11. Line 64 (ok) and lines 87 to 91, validate: empty input gives total=0, passed=0, failed=0, and ok=True. An empty batch, often caused by an upstream read or filter bug, reports success.
+
+12. Lines 16 to 21, rule: registering the same name twice replaces the earlier function (line 19). No error or warning is raised. Two modules that pick the same name cause one rule to disappear.
+
+13. Lines 13 and 19, _RULES: the registry is global and mutable. Every rule imported anywhere is active in every later validate() call with rules=None. A test that registers a rule can leak it into other tests. The module has no unregister function.
+
+14. Line 80, validate: failures are strings. A caller that wants to group failures by rule or field must parse the text. Splitting on ": " is unsafe because messages contain colons, for example the message at line 35.
+
+15. Missing rule: no rule checks id uniqueness. Two records with the same id both pass has_id, and the report does not show the duplicate.
+
+16. Line 11, RuleFunc: "str | None" is evaluated when the module is imported. The module needs Python 3.10 or newer. Line 13 ("dict[str, RuleFunc]") needs Python 3.9 or newer. No version check exists. The impact is low if the project already requires 3.10 or newer.
