@@ -1,0 +1,34 @@
+X01: functions in tests/benchmarks/sample_jobs/small_project/
+
+cli.py
+  main() [line 20]: Runs the load, transform, validate, and report pipeline, then exits 0 if the report passes, 1 if not, or 2 on errors.
+
+data_loader.py
+  load_csv(path) [line 15]: Opens a CSV file, checks that the required columns are present in the header, and returns each row as a dict.
+  load_json(path) [line 29]: Parses a JSON file and returns its top-level array, raising ValueError if the root value is not a list.
+  load(path) [line 38]: Picks load_csv or load_json from the file suffix and raises ValueError for any other extension.
+
+reporter.py
+  _text_lines(report) [line 13]: Builds the plain-text report lines and adds a Failures section listing each failed record's messages.
+  to_text(report) [line 31]: Joins the lines from _text_lines into one newline-separated string.
+  to_json(report) [line 35]: Serializes the report counts and per-record pass/fail details into an indented JSON string.
+  write(report, fmt, dest) [line 53]: Renders the report as JSON when fmt is "json" (text otherwise) and writes it to dest or stdout.
+
+transformer.py
+  register(name) [line 14]: Returns a decorator that stores the decorated function in _REGISTRY under the given name.
+  decorator(fn) [line 16]: Stores fn in _REGISTRY under the name passed to register and returns fn unchanged.
+  normalize_value(record) [line 23]: Returns a copy with 'value' converted to float, or 0.0 when the value is missing or not numeric.
+  strip_whitespace(record) [line 34]: Returns a copy with leading and trailing whitespace removed from every string-valued field.
+  add_flag(record) [line 40]: Returns a copy with a boolean 'flagged' field set to True when 'value' is greater than 100.
+  apply(records, steps) [line 47]: Validates step names, then applies each step in order to every record and returns the new list.
+
+validator.py
+  rule(name) [line 16]: Returns a decorator that registers the decorated function in the global _RULES dict under the given name.
+  decorator(fn) [line 18]: Stores fn in _RULES under the name captured by rule() and returns fn unchanged.
+  has_id(record) [line 25]: Returns an error message when the record's 'id' is missing or falsy, otherwise None.
+  value_non_negative(record) [line 32]: Returns an error when 'value' is negative or not convertible to float, and treats a missing 'value' as 0.
+  name_not_empty(record) [line 42]: Returns an error when the record's 'name' is missing or contains only whitespace after str() conversion.
+  ValidationReport.ok(self) [line 63]: Returns True when the failed count is zero, so every record passed.
+  validate(records, rules) [line 67]: Runs the named rules (default: all registered) on each record, returns a ValidationReport, and raises ValueError for unknown rule names.
+
+Total: 21 functions across 5 files
