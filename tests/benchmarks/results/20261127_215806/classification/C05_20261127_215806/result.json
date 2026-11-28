@@ -1,12 +1,12 @@
 {
   "status": "pass",
-  "elapsed_s": 0.07,
+  "elapsed_s": 0.06,
   "selected_model": "haiku",
   "expected": "haiku",
   "stdout": "{\"score\": 0.23, \"tier\": \"haiku\", \"recommended_model\": \"haiku\"}\n",
   "stderr": "",
-  "id": "C01",
-  "name": "Simple file rename task",
+  "id": "C05",
+  "name": "Show files (light signal)",
   "category": "classification",
   "cost_note": "Free (no session started)"
 }

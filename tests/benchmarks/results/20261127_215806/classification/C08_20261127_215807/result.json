@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "elapsed_s": 0.06,
+  "selected_model": "sonnet",
+  "expected": "sonnet",
+  "stdout": "{\"score\": 0.62, \"tier\": \"sonnet\", \"recommended_model\": \"sonnet\"}\n",
+  "stderr": "",
+  "id": "C08",
+  "name": "API documentation review (review signal, no length penalty)",
+  "category": "classification",
+  "cost_note": "Free (no session started)"
+}

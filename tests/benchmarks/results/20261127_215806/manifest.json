@@ -1,0 +1,69 @@
+{
+  "run_id": "20261127_215806",
+  "mode": "architekton",
+  "started_at": "2026-11-27T21:58:06.704947",
+  "dry_run": false,
+  "tests": [
+    {
+      "id": "C01",
+      "category": "classification",
+      "status": "pass",
+      "dir": "classification/C01_20261127_215806"
+    },
+    {
+      "id": "C02",
+      "category": "classification",
+      "status": "pass",
+      "dir": "classification/C02_20261127_215806"
+    },
+    {
+      "id": "C03",
+      "category": "classification",
+      "status": "pass",
+      "dir": "classification/C03_20261127_215806"
+    },
+    {
+      "id": "C04",
+      "category": "classification",
+      "status": "pass",
+      "dir": "classification/C04_20261127_215806"
+    },
+    {
+      "id": "C05",
+      "category": "classification",
+      "status": "pass",
+      "dir": "classification/C05_20261127_215806"
+    },
+    {
+      "id": "C06",
+      "category": "classification",
+      "status": "pass",
+      "dir": "classification/C06_20261127_215807"
+    },
+    {
+      "id": "C07",
+      "category": "classification",
+      "status": "pass",
+      "dir": "classification/C07_20261127_215807"
+    },
+    {
+      "id": "C08",
+      "category": "classification",
+      "status": "pass",
+      "dir": "classification/C08_20261127_215807"
+    },
+    {
+      "id": "C09",
+      "category": "classification",
+      "status": "pass",
+      "dir": "classification/C09_20261127_215807"
+    },
+    {
+      "id": "C10",
+      "category": "classification",
+      "status": "pass",
+      "dir": "classification/C10_20261127_215807"
+    }
+  ],
+  "finished_at": "2026-11-27T21:58:07.349494"
+}

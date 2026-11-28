@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "elapsed_s": 0.06,
+  "selected_model": "opus",
+  "expected": "opus",
+  "stdout": "{\"score\": 0.74, \"tier\": \"opus\", \"recommended_model\": \"opus\"}\n",
+  "stderr": "",
+  "id": "C09",
+  "name": "Refactor and restructure (two heavy signals)",
+  "category": "classification",
+  "cost_note": "Free (no session started)"
+}

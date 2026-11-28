@@ -64,6 +64,32 @@ categories:
       sizes. The cost journal records tokens and model for each session. Run with
       --mode both to see both sides in a single report.
 
+  - id: prose_generation
+    name: "Prose generation"
+    description: >
+      Parallel prose tasks: documentation, explanations, and summaries. These
+      tests show the quality and speed difference between model tiers for
+      writing-heavy work, and whether parallel decomposition beats one large
+      session. Each test writes one output file per source file so results are
+      easy to compare side by side.
+
+  - id: math_computation
+    name: "Math and computation"
+    description: >
+      Tasks requiring algorithmic reasoning: complexity analysis, test generation,
+      and performance profiling. These tests show when model tier matters for
+      analytical accuracy, and where haiku is good enough to save cost. All tests
+      run with --mode both for direct comparison.
+
+  - id: filesystem_mapping
+    name: "Filesystem mapping"
+    description: >
+      Whole-codebase tasks that require reading every file and building a coherent
+      model of the project. These stress context window size and cross-file
+      reasoning. Unlike parallel jobs, some filesystem tasks intentionally cannot
+      be decomposed -- plain claude in one session may actually win. The results
+      make that visible.
+
 
 tests:
 
@@ -393,3 +419,284 @@ tests:
     architekton_flags: []
     plain_flags: []
     cost_note: "$0.10-0.40 (architekton) | $0.25-1.00 (plain)"
+
+
+  # ── Additional classification ────────────────────────────────────────────────
+  #
+  # C05-C10 extend coverage to new signal types and known edge cases.
+  # All are free (no session started).
+
+  - id: C05
+    category: classification
+    name: "Show files (light signal)"
+    description: >
+      Minimal task with a light signal ('show me'). Should score well below the
+      haiku threshold. Tests that the light-signal penalty fires correctly on a
+      short, mechanical request.
+    prompt: "Show me the Python files in this directory."
+    expected: haiku
+    cost_note: "Free (no session started)"
+
+  - id: C06
+    category: classification
+    name: "Security exploit analysis (two heavy signals)"
+    description: >
+      Prompt containing both 'security' and 'exploit' -- two distinct heavy
+      signals. Should push clearly into opus territory. Tests that multiple
+      heavy hits accumulate correctly.
+    prompt: >
+      Security vulnerability: analyze this login function and identify all
+      exploit paths an attacker could use to bypass authentication.
+    expected: opus
+    cost_note: "Free (no session started)"
+
+  - id: C07
+    category: classification
+    name: "Simple factual question (what is + light signal)"
+    description: >
+      Short factual question using 'what is' (a light signal). Should score
+      at haiku. Tests that 'what is' fires correctly and the combined short-prompt
+      + light-signal path produces the expected result.
+    prompt: "What is a Python decorator and when would you use one?"
+    expected: haiku
+    cost_note: "Free (no session started)"
+
+  - id: C08
+    category: classification
+    name: "API documentation review (review signal, no length penalty)"
+    description: >
+      Contains 'review' (one heavy signal). Short enough that without the fix
+      from Nov 27, the length penalty would drag it to haiku. Tests that the
+      signal correctly suppresses the short-prompt penalty and lands at sonnet.
+    prompt: >
+      Review the existing data loading module and write a comprehensive user
+      guide section explaining each function, expected input formats, common
+      error scenarios, and practical code examples for the three most common
+      use cases.
+    expected: sonnet
+    cost_note: "Free (no session started)"
+
+  - id: C09
+    category: classification
+    name: "Refactor and restructure (two heavy signals)"
+    description: >
+      Contains both 'refactor' and 'restructure'. Two heavy signals should
+      push this to opus. Tests cumulative heavy-signal scoring on a naturally
+      phrased engineering request.
+    prompt: >
+      Refactor the data pipeline to use async/await throughout and restructure
+      the error handling to be centralized in a single error manager class.
+    expected: opus
+    cost_note: "Free (no session started)"
+
+  - id: C10
+    category: classification
+    name: "Debug, investigate, root cause (three heavy signals)"
+    description: >
+      Contains 'debug', 'investigate', and 'root cause' -- three heavy signals.
+      Should score near the top of the opus range. Tests signal saturation and
+      confirms the ceiling behavior is correct.
+    prompt: >
+      Debug this error: AttributeError 'NoneType' has no attribute 'get' in
+      the transform function. Investigate the root cause and explain why the
+      input data is arriving as None.
+    expected: opus
+    cost_note: "Free (no session started)"
+
+
+  # ── Prose generation ─────────────────────────────────────────────────────────
+  #
+  # Writing-heavy parallel jobs. Run with --mode both to compare architekton
+  # (parallel haiku/sonnet workers) against plain claude (one serial session).
+
+  - id: G01
+    category: prose_generation
+    name: "Parallel docstrings (auto config)"
+    description: >
+      architekton decomposes the job into one task per file and writes Google-style
+      docstrings for every function and class. Plain mode does the same work in a
+      single session. Measures time and quality when the task decomposes cleanly.
+    job: >
+      For each Python file in tests/benchmarks/sample_jobs/small_project/,
+      write complete Google-style docstrings for every function and class that
+      currently lacks one. Write the fully documented version of each file to
+      tests/benchmarks/results/G01_{filename}_documented.py where {filename}
+      is the basename without .py.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.03-0.10 (architekton) | $0.05-0.15 (plain)"
+
+  - id: G02
+    category: prose_generation
+    name: "Parallel plain-English module explanations"
+    description: >
+      Each module explained in plain English: what it does, who uses it, when.
+      Classic parallel decomposition -- five independent tasks with no shared
+      state. architekton should finish in one worker-round; plain claude
+      reads all five files sequentially. Output quality should be identical.
+    job: >
+      For each Python file in tests/benchmarks/sample_jobs/small_project/,
+      write a plain-English explanation (3-5 paragraphs) covering: what the
+      module does, who would use it, when you would use it instead of something
+      else, and any gotchas a new developer should know. Write each explanation
+      to tests/benchmarks/results/G02_{filename}_explained.txt.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.02-0.08 (architekton) | $0.04-0.12 (plain)"
+
+  - id: G03
+    category: prose_generation
+    name: "Parallel architecture docs per module"
+    description: >
+      A heavier prose task requiring real code comprehension per file: design
+      patterns used, data flow, dependencies, extension points. architekton
+      uses sonnet workers (auto-selected for this complexity). Tests whether
+      parallelism still wins when workers need to do serious analysis per file.
+    job: >
+      For each Python file in tests/benchmarks/sample_jobs/small_project/,
+      write an architecture overview document covering: design patterns in use,
+      data flow through the module, external dependencies, and how a developer
+      would extend or replace it. Write each to
+      tests/benchmarks/results/G03_{filename}_arch.md.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.05-0.15 (architekton) | $0.08-0.25 (plain)"
+
+
+  # ── Math and computation ─────────────────────────────────────────────────────
+  #
+  # Analytical tasks where model tier affects accuracy, not just fluency.
+  # Run with --mode both.
+
+  - id: M01
+    category: math_computation
+    name: "Parallel Big-O complexity analysis"
+    description: >
+      For each file, analyse every function's time and space complexity using
+      Big-O notation with reasoning. architekton dispatches one analysis per
+      file in parallel. This tests whether haiku can reason correctly about
+      algorithm complexity, or whether the wrong tier produces wrong answers.
+    job: >
+      For each Python file in tests/benchmarks/sample_jobs/small_project/,
+      analyse every function: determine its time complexity, space complexity,
+      and explain your reasoning step by step. Flag any O(n^2) or worse cases
+      and suggest a more efficient alternative. Write results to
+      tests/benchmarks/results/M01_{filename}_complexity.txt.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.03-0.10 (architekton) | $0.05-0.15 (plain)"
+
+  - id: M02
+    category: math_computation
+    name: "Parallel unit test generation"
+    description: >
+      Generate a pytest test file for each module. Requires understanding inputs,
+      outputs, edge cases, and error paths -- analytical work, not rote writing.
+      Compare architekton parallel output against plain claude's single pass for
+      both coverage and correctness.
+    job: >
+      For each Python file in tests/benchmarks/sample_jobs/small_project/,
+      generate a complete pytest test file. Cover: normal cases, boundary
+      conditions, type errors, and any exception paths visible in the code.
+      Each test function must have a docstring explaining what it verifies.
+      Write each test file to tests/benchmarks/results/M02_test_{filename}.py.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.04-0.12 (architekton) | $0.06-0.20 (plain)"
+
+  - id: M03
+    category: math_computation
+    name: "Parallel performance bottleneck analysis"
+    description: >
+      Profile each file for performance: identify bottlenecks, estimate the
+      improvement from each suggested fix, and rank by impact. This requires
+      reasoning about runtime behavior -- not just reading code. Expensive
+      analysis tasks like this are where model tier selection has measurable
+      output quality impact.
+    job: >
+      For each Python file in tests/benchmarks/sample_jobs/small_project/,
+      identify all performance bottlenecks: N+1 patterns, unnecessary copies,
+      unneeded re-computation, and I/O blocking calls. For each bottleneck,
+      suggest a concrete fix and estimate the improvement as a multiplier
+      (e.g. 3x faster). Rank findings by impact. Write to
+      tests/benchmarks/results/M03_{filename}_perf.txt.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.04-0.15 (architekton) | $0.06-0.20 (plain)"
+
+
+  # ── Filesystem mapping ───────────────────────────────────────────────────────
+  #
+  # Whole-codebase tasks. Some decompose well (run faster with architekton);
+  # others need global context and may run better in a single session.
+  # Run with --mode both and read the results carefully -- plain may win on F01.
+
+  - id: F01
+    category: filesystem_mapping
+    name: "Cross-module dependency map (whole-codebase task)"
+    description: >
+      Build a complete dependency graph for the sample project: who imports whom,
+      what data crosses module boundaries, and whether any circular dependencies
+      exist. This task CANNOT be cleanly parallelized -- it needs all files in
+      context simultaneously. Plain claude in one session may outperform
+      architekton here, and the results will show it. Included specifically to
+      demonstrate architekton's limits, not just its strengths.
+    job: >
+      Map all imports and dependencies across every Python file in
+      tests/benchmarks/sample_jobs/small_project/. Build a dependency graph
+      showing which modules depend on which. Identify any circular imports,
+      missing imports, or unused imports. Write the full dependency map to
+      tests/benchmarks/results/F01_dependency_map.txt with a diagram in
+      ASCII art and a written summary of the dependency structure.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.03-0.10 (architekton) | $0.02-0.08 (plain)"
+
+  - id: F02
+    category: filesystem_mapping
+    name: "Cross-file function call graph"
+    description: >
+      Trace every function call that crosses a module boundary. For each call,
+      record the caller, callee, what data is passed, and what is returned.
+      Partial parallelism is possible (analyse each file's outbound calls
+      independently) but the final assembly step requires global context.
+      Tests whether architekton's orchestrator handles mixed decomposable/
+      non-decomposable work gracefully.
+    job: >
+      Trace every function call that crosses a module boundary in
+      tests/benchmarks/sample_jobs/small_project/. For each cross-module call:
+      name the caller module and function, the callee module and function, what
+      arguments are passed, and what is returned. Identify any call chains
+      longer than two hops. Write the complete call graph to
+      tests/benchmarks/results/F02_call_graph.txt.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.03-0.10 (architekton) | $0.03-0.10 (plain)"
+
+  - id: F03
+    category: filesystem_mapping
+    name: "Dead code and unused symbol detection"
+    description: >
+      Find all unused imports, unreferenced functions, unused variables, and
+      unreachable code paths across the entire project. This is a whole-codebase
+      scan -- each file's 'used' symbols depend on what every other file
+      references. Exercises both context window size and cross-file reasoning.
+    job: >
+      Scan all Python files in tests/benchmarks/sample_jobs/small_project/ for
+      dead code: unused imports, functions defined but never called from anywhere
+      in the project, variables assigned but never read, and unreachable code
+      paths. Produce a consolidated report sorted by severity (definitely dead,
+      probably dead, check manually). Write to
+      tests/benchmarks/results/F03_dead_code.txt.
+    workdir: "."
+    architekton_flags: []
+    plain_flags: []
+    cost_note: "$0.03-0.10 (architekton) | $0.03-0.10 (plain)"

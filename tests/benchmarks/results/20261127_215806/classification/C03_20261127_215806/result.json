@@ -1,6 +1,6 @@
 {
   "status": "pass",
-  "elapsed_s": 0.07,
+  "elapsed_s": 0.06,
   "selected_model": "opus",
   "expected": "opus",
   "stdout": "{\"score\": 0.74, \"tier\": \"opus\", \"recommended_model\": \"opus\"}\n",

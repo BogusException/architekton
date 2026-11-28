@@ -55,6 +55,7 @@ Each run writes to results/<run_id>/ (run_id = YYYYMMDD_HHMMSS):
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -272,6 +273,195 @@ def _run_job(test: dict, mode: str, test_dir: Path, dry_run: bool, real_claude: 
     return {"status": status, "log": str(log_file.relative_to(BENCH_DIR)), **results}
 
 
+# ── Report generator ───────────────────────────────────────────────────────────
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[mGKHF]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
+
+
+def _extract_tui_snippet(log_content: str, max_lines: int = 25) -> str:
+    """Return the final TUI board snapshot from an output log, ANSI codes stripped."""
+    clean = _strip_ansi(log_content)
+    lines = clean.splitlines()
+    # Find the last separator line that precedes a TUI board
+    best = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip("─ -=")
+        if not stripped and len(line.strip()) > 20:
+            best = i
+    snippet = lines[best : best + max_lines]
+    while snippet and not snippet[-1].strip():
+        snippet.pop()
+    return "\n".join(snippet)
+
+
+def _cat_desc(spec: dict, cat_id: str) -> str:
+    for cat in spec.get("categories", []):
+        if cat["id"] == cat_id:
+            raw = cat.get("description", "").strip().replace("\n", " ")
+            return (raw.split(".")[0] + ".") if "." in raw else raw
+    return ""
+
+
+def generate_report(run_dir: Path, manifest: dict) -> Path:
+    """Write report.md alongside manifest.json. Renders on GitHub; no tooling needed."""
+    try:
+        spec = _load_yaml(TESTS_FILE)
+    except SystemExit:
+        spec = {}
+
+    run_id   = manifest["run_id"]
+    mode     = manifest["mode"]
+    started  = manifest.get("started_at", "")
+    finished = manifest.get("finished_at", "")
+    dry_run  = manifest.get("dry_run", False)
+
+    date_str = started[:10] if started else ""
+    time_str = started[11:16] if len(started) > 15 else ""
+    duration_str = ""
+    try:
+        t0 = datetime.fromisoformat(started)
+        t1 = datetime.fromisoformat(finished)
+        secs = (t1 - t0).total_seconds()
+        duration_str = f"{secs:.1f}s" if secs < 60 else f"{secs / 60:.1f}m"
+    except Exception:
+        pass
+
+    test_entries = manifest.get("tests", [])
+    passed  = sum(1 for t in test_entries if t["status"] == "pass")
+    failed  = sum(1 for t in test_entries if t["status"] == "fail")
+    skipped = sum(1 for t in test_entries if t["status"] in ("skipped", "dry-run"))
+    errored = sum(1 for t in test_entries if t["status"] in ("error", "interrupted"))
+
+    L: list[str] = []
+
+    L.append("# architekton benchmark report\n")
+
+    meta = f"**Run:** `{run_id}`"
+    if date_str:
+        meta += f" &nbsp; **Date:** {date_str} {time_str}"
+    meta += f" &nbsp; **Mode:** {mode}"
+    if duration_str:
+        meta += f" &nbsp; **Duration:** {duration_str}"
+    if dry_run:
+        meta += " &nbsp; *(dry run)*"
+    L.append(meta + "\n")
+    L.append("---\n")
+
+    summary_parts = []
+    if passed:  summary_parts.append(f"**{passed} passed**")
+    if failed:  summary_parts.append(f"**{failed} failed**")
+    if skipped: summary_parts.append(f"{skipped} skipped")
+    if errored: summary_parts.append(f"{errored} errored")
+    L.append((" · ".join(summary_parts) or "no results") + "\n")
+    L.append("---\n")
+
+    # Group by category, preserving manifest order
+    by_cat: dict[str, list[dict]] = {}
+    for entry in test_entries:
+        t_dir_rel = entry.get("dir", "")
+        t_dir = run_dir / t_dir_rel if t_dir_rel else None
+        result: dict = {}
+        if t_dir and (t_dir / "result.json").exists():
+            try:
+                result = json.loads((t_dir / "result.json").read_text())
+            except Exception:
+                pass
+        result.setdefault("id", entry["id"])
+        result.setdefault("category", entry.get("category", ""))
+        result.setdefault("status", entry["status"])
+        result["_dir"] = t_dir
+        by_cat.setdefault(entry.get("category", "other"), []).append(result)
+
+    for cat, results in by_cat.items():
+        L.append(f"## {cat.replace('_', ' ').title()}\n")
+        desc = _cat_desc(spec, cat)
+        if desc:
+            L.append(f"> {desc}\n")
+
+        if cat == "classification":
+            L.append("| ID | Test | Expected | Selected | Score | Result | Time |")
+            L.append("|----|------|----------|----------|-------|--------|------|")
+            for r in results:
+                tid      = r.get("id", "?")
+                name     = r.get("name", "")
+                expected = r.get("expected", "")
+                selected = r.get("selected_model", "")
+                score    = ""
+                try:
+                    score = str(json.loads(r.get("stdout", "{}")).get("score", ""))
+                except Exception:
+                    pass
+                status  = r.get("status", "?")
+                icon    = "✓" if status == "pass" else ("✗" if status == "fail" else "·")
+                elapsed = f"{r['elapsed_s']:.2f}s" if "elapsed_s" in r else "--"
+                L.append(
+                    f"| {tid} | {name} | {expected} | {selected} | {score} | {icon} | {elapsed} |"
+                )
+
+        else:
+            has_sub = any("architekton" in r or "plain" in r for r in results)
+            if has_sub:
+                L.append("| ID | Test | | architekton | plain | Speedup |")
+                L.append("|----|------|-|-------------|-------|---------|")
+                for r in results:
+                    tid    = r.get("id", "?")
+                    name   = r.get("name", "")
+                    ark    = r.get("architekton", {})
+                    pl     = r.get("plain", {})
+                    ark_t  = ark.get("elapsed_s")
+                    pl_t   = pl.get("elapsed_s")
+                    ark_s  = f"{ark_t:.1f}s" if ark_t is not None else "--"
+                    pl_s   = f"{pl_t:.1f}s"  if pl_t  is not None else "--"
+                    spdup  = (f"{pl_t / ark_t:.1f}×" if ark_t and pl_t and ark_t > 0 else "--")
+                    ok     = "✓" if ark.get("exit_code", 1) == 0 else "✗"
+                    L.append(f"| {tid} | {name} | {ok} | {ark_s} | {pl_s} | {spdup} |")
+            else:
+                L.append("| ID | Test | Wall time | Status |")
+                L.append("|----|------|-----------|--------|")
+                for r in results:
+                    tid    = r.get("id", "?")
+                    name   = r.get("name", "")
+                    status = r.get("status", "?")
+                    icon   = "✓" if status == "pass" else ("✗" if status == "fail" else "·")
+                    elapsed = "--"
+                    for label in ("architekton", "plain"):
+                        sub = r.get(label, {})
+                        if "elapsed_s" in sub:
+                            elapsed = f"{sub['elapsed_s']:.1f}s"
+                            break
+                    if elapsed == "--" and "elapsed_s" in r:
+                        elapsed = f"{r['elapsed_s']:.1f}s"
+                    L.append(f"| {tid} | {name} | {elapsed} | {icon} {status} |")
+
+            # TUI snippet from output.log
+            for r in results:
+                t_dir = r.get("_dir")
+                if not t_dir:
+                    continue
+                log_path = Path(t_dir) / "output.log"
+                if not log_path.exists():
+                    continue
+                snippet = _extract_tui_snippet(log_path.read_text(errors="replace"))
+                if snippet:
+                    L.append(f"\n### {r.get('id', '?')} — session output\n")
+                    L.append("```")
+                    L.append(snippet)
+                    L.append("```\n")
+
+        L.append("")
+
+    L.append("---")
+    L.append("*Generated by architekton benchmark runner*")
+
+    report_path = run_dir / "report.md"
+    report_path.write_text("\n".join(L) + "\n")
+    return report_path
+
+
 # ── Run orchestration ──────────────────────────────────────────────────────────
 
 COST_WARNING_THRESHOLD = 2  # number of costly tests before prompting
@@ -352,7 +542,9 @@ def run_all(tests: list[dict], mode: str, run_dir: Path, dry_run: bool, real_cla
 
     manifest["finished_at"] = datetime.now().isoformat()
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    report_path = generate_report(run_dir, manifest)
     print(f"\nResults written to: {run_dir.relative_to(BENCH_DIR)}/")
+    print(f"Report:             {report_path.relative_to(BENCH_DIR)}")
     return manifest
 
 
