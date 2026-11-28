@@ -1,108 +1,105 @@
-F03 CONSOLIDATED DEAD CODE REPORT: small_project
-=================================================
+F03 DEAD CODE REPORT: tests/benchmarks/sample_jobs/small_project/
+==================================================================
 
-Scope:  tests/benchmarks/sample_jobs/small_project/
-        cli.py (65 lines), data_loader.py (45), reporter.py (59), transformer.py (55),
-        validator.py (93). 317 lines in total.
-Date:   2026-11-28
-Inputs: F03_cli_dead_code.txt, F03_data_loader_dead_code.txt, F03_reporter_dead_code.txt,
-        F03_transformer_dead_code.txt, F03_validator_dead_code.txt. All five were present,
-        so no module needed a fresh scan for a missing input. Each input reported zero findings.
-Method:
-  1. Every input claim was checked against the source. All five files were read in full with
-     line numbers.
-  2. An ast scan was run with python3 -I (Python 3.14.4) over all five modules together. The
-     script lives outside the repo (/tmp/f03_verify/scan.py). It checks: unused imports,
-     module-level names with no reference in any of the five modules (Name loads, Attribute
-     names, ImportFrom names, string constants), locals assigned but never read, statements
-     after return/raise/break/continue, constant if/while tests, and getattr/setattr/eval/
-     exec/__import__/globals/locals/vars calls.
-  3. grep across the five modules for every registry name (has_id, value_non_negative,
-     name_not_empty, normalize_value, strip_whitespace, add_flag), for load_csv, load_json,
-     to_text, to_json, RecordResult, __all__ and importlib.
-  4. Entry point: cli.py main() and its __main__ guard (line 64). No source file was modified.
-Result: 0 findings in all four categories. The five input reports are confirmed.
+Scope: cli.py, data_loader.py, reporter.py, transformer.py, validator.py (317 lines).
+Method: manual read of every file plus an AST pass that counted loads of each def/class
+name across the project. Line numbers are per file. "Called from anywhere" means called
+from another file in small_project or from the file itself. Test files under
+tests/benchmarks/results/ import this project but are outside the scope and were not
+counted as callers.
 
-DEFINITELY DEAD
----------------
-none
+SUMMARY
+-------
+Definitely dead   : 0
+Probably dead     : 3 items
+Check manually    : 5 items
+Unused imports    : 0 (all 16 import statements are used)
+Unused variables  : 0 (every local and module-level assignment is read)
+Unreachable code  : 0
 
-PROBABLY DEAD
--------------
-none
+The project is small and clean. Nothing can be deleted with zero risk.
 
-CHECK MANUALLY
---------------
-none
+1. DEFINITELY DEAD
+------------------
+None.
 
-DROPPED OR RECLASSIFIED INPUT FINDINGS
---------------------------------------
-No input finding was dropped, reclassified, or given a corrected line number, because no input
-reported a finding. No dead code was added. The items below looked like candidates in the
-scan output. Each was traced and is live, so none is a finding.
+2. PROBABLY DEAD
+----------------
+2.1  validator.py:52   RecordResult.failures = field(default_factory=list)
+     The only construction site is validator.py:81-85, and it always passes failures=
+     explicitly. The default is never used by any code in the project.
+     Risk: it is part of the dataclass constructor signature. Removing it makes the
+     argument required for outside callers.
 
-1. transformer.py:23 normalize_value, transformer.py:34 strip_whitespace, transformer.py:40
-   add_flag. The ast scan finds no direct reference to these names in any module. Each is
-   registered by name through @register at lines 22, 33 and 39. apply() looks them up in
-   _REGISTRY at lines 49 and 54. cli.py:16 lists all three in DEFAULT_STEPS, and --steps
-   accepts them from the user. Live through string dispatch.
+2.2  validator.py:60   ValidationReport.results = field(default_factory=list)
+     The only construction site is validator.py:88-93, and it always passes results=
+     explicitly. Same reasoning and same risk as 2.1.
+     If both defaults go, the "field" import on validator.py:7 becomes unused. Keep
+     "dataclass".
 
-2. validator.py:25 has_id, validator.py:32 value_non_negative, validator.py:42 name_not_empty.
-   Same pattern. Registered by @rule at lines 24, 31 and 41, called through _RULES at line 78
-   in validate(). cli.py:17 lists all three in DEFAULT_RULES. Live through string dispatch.
+2.3  reporter.py:59    print(content, file=sys.stdout)
+     file=sys.stdout is the default for print(), so the argument does nothing. It is the
+     only use of "sys" in reporter.py, so "import sys" (reporter.py:7) exists only to
+     support this redundant argument. Both can go together. Not dead logic, but dead
+     weight. One catch: if a test replaces sys.stdout with capsys, plain print() still
+     picks up the replacement, so behavior is unchanged.
 
-3. data_loader.py:15 load_csv and data_loader.py:29 load_json. No other module references
-   them. Both are called from load() at lines 42 and 44, and cli.py:54 calls load(). Live.
+3. CHECK MANUALLY
+-----------------
+3.1  transformer.py:23, 34, 40   normalize_value, strip_whitespace, add_flag
+     validator.py:25, 32, 42     has_id, value_non_negative, name_not_empty
+     No code references these six names directly (AST load count is 0 for each). A
+     static tool such as vulture will flag them. They are live: each is registered by a
+     decorator (transformer.py:22/33/39, validator.py:24/31/41) and all six are named in
+     cli.py:16-17 (DEFAULT_STEPS, DEFAULT_RULES), so they run on every default CLI call.
+     Do not delete. Treat as a false positive.
 
-4. reporter.py:31 to_text and reporter.py:35 to_json. No other module references them. Both
-   are called from write() at line 55, and cli.py:57 calls write(). Live.
+3.2  data_loader.py:15, 29   load_csv, load_json
+     reporter.py:31, 35       to_text, to_json
+     Each has exactly one caller, and that caller is in the same file (load at
+     data_loader.py:38-45, write at reporter.py:55). Nothing outside the file uses them.
+     They are public names, so they may be intended API. Keep unless the project wants
+     to make them private (_load_csv, and so on).
 
-5. transformer.py:11 _REGISTRY and validator.py:13 _RULES. A module-scope read check can
-   report these as unread. Both are written in the decorator and read in apply() (lines 49,
-   54) and validate() (lines 69, 70, 78). Live.
+3.3  validator.py:69   active_rules = rules or list(_RULES)
+     The "or list(_RULES)" fallback is not dead. cli.py passes args.rules, which is a
+     list. However, "--rules" with no values gives [], and [] is falsy, so the CLI then
+     runs all registered rules instead of none. The rules=None default is never used by
+     cli.py. Check whether "run all rules on empty list" is intended. This is a
+     behavior question, not a deletion candidate.
 
-6. validator.py:69 "rules or list(_RULES)". The fallback branch runs when rules is None or
-   empty. cli.py passes [] when the user gives "--rules" with no values (nargs="*"). Reachable.
-   Not dead code.
+3.4  transformer.py:43   float(out.get("value", 0)) in add_flag
+     No dead code here. It is noted because add_flag raises ValueError on a non-numeric
+     value unless normalize_value ran first. The try/except in normalize_value
+     (transformer.py:27-30) is only protective if step order is correct. Both exception
+     branches (TypeError for None, ValueError for text) are reachable from JSON input.
 
-7. reporter.py:10 ValidationReport and transformer.py:8, validator.py:8 Callable. Each is
-   used in annotations that are evaluated at def time (no "from __future__ import
-   annotations"). Live imports.
+3.5  cli.py:59   except (ValueError, FileNotFoundError)
+     Both exception types are reachable (ValueError from data_loader.py:25, 36, 45,
+     transformer.py:51, validator.py:72; FileNotFoundError from open() at
+     data_loader.py:18, 31). Other OSError types (PermissionError, IsADirectoryError) are
+     not caught and would show a traceback. Not dead code. Listed so nobody trims the
+     tuple by mistake.
 
-8. cli.py:59 "except (ValueError, FileNotFoundError)". Neither class subclasses the other, so
-   the clause is not shadowed. load() raises both. Reachable.
+4. CHECKED AND CLEAN
+--------------------
+Imports (all used):
+  cli.py          argparse, sys, load, apply, validate, write
+  data_loader.py  csv, json, Path
+  reporter.py     json, sys, Path, ValidationReport (used in annotations only,
+                  reporter.py:13, 31, 35, 53)
+  transformer.py  Callable
+  validator.py    dataclass, field, Callable
 
-Other checks, all clean:
-  - No import in any module is unused (all 16 import statements checked against their use sites).
-  - No local variable is assigned and left unread.
-  - No statement follows a return, raise, break or continue.
-  - No if or while test is a constant.
-  - No __all__, importlib, getattr, setattr, eval, exec, __import__, globals, locals or vars
-    in any module, so there is no hidden dynamic access to worry about.
-  - Scope note: files under tests/benchmarks/results/ (such as M02_test_*.py) call into these
-    modules, but they were not used to decide any verdict.
+Functions and classes (all reachable from cli.main):
+  main -> load -> load_csv / load_json
+       -> apply -> registered transformations
+       -> validate -> registered rules, RecordResult, ValidationReport
+       -> write -> to_json / to_text -> _text_lines
+  register (transformer.py:14) and rule (validator.py:16) are used as decorators.
+  RuleFunc (validator.py:11) and REQUIRED_COLUMNS (data_loader.py:12) are used.
+  ValidationReport.ok (validator.py:63) is read by cli.py:58 and reporter.py:20, 25.
 
-TOTALS
-------
-
-Findings per severity:
-
-  Severity           Count
-  -----------------  -----
-  DEFINITELY DEAD        0
-  PROBABLY DEAD          0
-  CHECK MANUALLY         0
-  -----------------  -----
-  Total                  0
-
-Findings per module and severity:
-
-  Module          DEFINITELY DEAD  PROBABLY DEAD  CHECK MANUALLY  Total
-  --------------  ---------------  -------------  --------------  -----
-  cli.py                        0              0               0      0
-  data_loader.py                0              0               0      0
-  reporter.py                   0              0               0      0
-  transformer.py                0              0               0      0
-  validator.py                  0              0               0      0
-  --------------  ---------------  -------------  --------------  -----
-  Total                         0              0               0      0
+Unreachable code: none. Every raise, return, and except branch can be hit with some
+input. sys.exit() inside the try block at cli.py:58 raises SystemExit, which the except
+clause does not catch, so the exit code is preserved.
