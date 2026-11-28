@@ -1,0 +1,146 @@
+COMPLEXITY ANALYSIS
+Source file: tests/benchmarks/sample_jobs/small_project/validator.py (93 lines)
+Flagged functions: none (no function is O(n^2) or worse)
+
+Variables (used throughout)
+  n = number of records passed to validate()
+  m = fields per record (no function here iterates over fields, so m never appears in a bound)
+  k = number of rules actually run (len(active_rules) in validate). k is at most the registry
+      size, 3 built-in rules, unless the caller passes a rules list with repeated names.
+  L = length of the longest string value inspected by a rule (only str(...) and float(...) on
+      line 34 and line 43 depend on it; treated as a bounded field length, so O(L) is O(1)).
+
+Inventory (from ast: every FunctionDef and AsyncFunctionDef; no AsyncFunctionDef, no lambdas
+assigned to names, no imports of sibling modules, so no cross-module costs apply)
+  rule                      16-21
+  rule.decorator            18-20   (nested)
+  has_id                    25-28
+  value_non_negative        32-38
+  name_not_empty            42-45
+  ValidationReport.ok       63-64   (property)
+  validate                  67-93
+  RecordResult and ValidationReport are dataclasses. Their generated __init__ is not in the
+  source, costs O(1) per instance (the list fields are stored by reference, not copied).
+  The only imports are dataclasses and typing (stdlib), which have no per-record cost.
+
+----------------------------------------------------------------------------------------------
+1. rule (lines 16-21)
+----------------------------------------------------------------------------------------------
+Time: O(1) per call. Space: O(1) auxiliary, no output beyond the returned closure.
+Reasoning:
+  - Line 18 defines a closure and line 21 returns it. No loop, no iteration over records.
+  - Calling rule("x") runs once per decorated function at import time (lines 24, 31, 41), so
+    the total registration cost is O(r) for r decorated rules, independent of n.
+FLAG: none
+
+----------------------------------------------------------------------------------------------
+2. rule.decorator (lines 18-20)
+----------------------------------------------------------------------------------------------
+Time: O(1) average. Space: O(1) auxiliary (one new dict entry, which persists in _RULES).
+Reasoning:
+  - Line 19 does one dict assignment, _RULES[name] = fn. Hash insert is O(1) average.
+  - Line 20 returns fn unchanged, so the decorated rules keep their own cost.
+  - A repeated name silently overwrites the earlier rule. This is a correctness note, not a
+    cost issue.
+FLAG: none
+
+----------------------------------------------------------------------------------------------
+3. has_id (lines 25-28)
+----------------------------------------------------------------------------------------------
+Time: O(1). Space: O(1) auxiliary; output is one short string or None, O(1).
+Reasoning:
+  - Line 26: record.get("id") is a hash lookup, O(1) average. The truthiness test is O(1) for
+    str and int.
+  - Lines 27-28: return a constant string or None. No loop, no regex, no list scan.
+FLAG: none
+
+----------------------------------------------------------------------------------------------
+4. value_non_negative (lines 32-38)
+----------------------------------------------------------------------------------------------
+Time: O(L), which is O(1) for bounded field length. Space: O(1) auxiliary; output string is
+O(L) on the failure paths.
+Reasoning:
+  - Line 34: record.get("value", 0) is O(1). float() parses the string in O(L) when the value
+    is a str, O(1) for int and float. The comparison is O(1).
+  - Line 35: the f-string formats record['value'], O(L), and is built only on failure.
+  - Line 37: repr of the value on the except path, O(L). Exception handling adds O(1).
+  - No loop, no regex. Nothing here depends on n or k.
+FLAG: none
+
+----------------------------------------------------------------------------------------------
+5. name_not_empty (lines 42-45)
+----------------------------------------------------------------------------------------------
+Time: O(L), which is O(1) for bounded field length. Space: O(L) auxiliary for the temporary
+string made by str() and strip() on line 43; output is a constant string or None.
+Reasoning:
+  - Line 43: record.get("name", "") is O(1). str() on a str returns the same object. strip()
+    copies the string in O(L). The truthiness test is O(1).
+  - Lines 44-45: constant return values.
+FLAG: none
+
+----------------------------------------------------------------------------------------------
+6. ValidationReport.ok (lines 63-64)
+----------------------------------------------------------------------------------------------
+Time: O(1). Space: O(1).
+Reasoning:
+  - Line 64 compares one int attribute with 0. It does not scan results.
+FLAG: none
+
+----------------------------------------------------------------------------------------------
+7. validate (lines 67-93)
+----------------------------------------------------------------------------------------------
+Time: O(n * k) (plus O(k) setup). Space: O(k) auxiliary; output O(n * (1 + f)) where f is the
+number of failure strings per record, f <= k, so output is O(n * k) worst case.
+Reasoning, by line:
+  - Line 69: rules or list(_RULES). Copies the registry keys, O(k).
+  - Line 70: the comprehension runs once per active rule. The test r not in _RULES is on a
+    dict (hash lookup, O(1) average), not on a list, so the total is O(k). No quadratic
+    membership test. The temporary list unknown holds at most k names, O(k) space.
+  - Lines 71-72: O(1) test. On failure the error string is O(k), raised once.
+  - Line 74: results = [] grows by exactly one RecordResult per record, so O(n) elements.
+  - Line 75: outer loop over records, n iterations.
+  - Line 76: a fresh failures list per record, O(1) to create.
+  - Line 77: inner loop over active_rules, k iterations. This is the only nested loop. It is a
+    loop over rules, not a second loop over records, so it is O(n * k) and not O(n^2).
+  - Line 78: _RULES[rule_name] is a dict lookup, O(1). The rule call is O(1) per sections 3-5
+    (O(L) for value_non_negative and name_not_empty, bounded). No regex is used anywhere in
+    the file, so there is no compilation inside a loop.
+  - Lines 79-80: one f-string append per failing rule. Append is amortized O(1). The string
+    is O(L) because it embeds the rule message.
+  - Lines 81-85: one RecordResult per record. str(record.get("id", "(no id)")) is O(L).
+    The failures list is stored by reference, not copied.
+  - There is no uniqueness or duplicate check across records. No record is compared with any
+    other record, so nothing is quadratic in n.
+  - Line 87: the generator sum over results is O(n), one pass.
+  - Lines 88-93: constructing the report is O(1). len(results) is O(1).
+  Total time: O(k) + O(n * k) + O(n) = O(n * k).
+  Space accounting:
+    Auxiliary: active_rules and unknown are O(k). Loop locals (failures, msg, record) are O(1)
+    beyond what is retained in the output.
+    Output: results holds n RecordResult objects, each with a failures list of up to k
+    strings. That is O(n) when most records pass and O(n * k) when most records fail every
+    rule. This space is required by the return value.
+k case: k is bounded by the registry size (3 built-in rules, a small constant) because
+unknown names are rejected on lines 70-72. k does not grow with n. The one way k can exceed
+the registry size is a caller passing duplicate names (for example ["has_id"] * 1000). That
+input is chosen by the caller, not derived from n, so the case that applies is "k independent
+of n" and O(n * k) is not flagged. If a future caller sets k proportional to n, the cost would
+become O(n^2), and a dedupe on line 69 (see below) would cap k at the registry size.
+FLAG: none
+
+Optional hardening (not required, no flag): dedupe repeated rule names so k cannot exceed
+the registry size.
+    active_rules = list(dict.fromkeys(rules)) if rules else list(_RULES)
+This keeps the order, runs in O(k), and bounds the inner loop at the registry size.
+
+----------------------------------------------------------------------------------------------
+Summary table
+----------------------------------------------------------------------------------------------
+  rule                  16-21   time O(1)       aux space O(1)   FLAG: none
+  rule.decorator        18-20   time O(1)       aux space O(1)   FLAG: none
+  has_id                25-28   time O(1)       aux space O(1)   FLAG: none
+  value_non_negative    32-38   time O(L)~O(1)  aux space O(1)   FLAG: none
+  name_not_empty        42-45   time O(L)~O(1)  aux space O(L)   FLAG: none
+  ValidationReport.ok   63-64   time O(1)       aux space O(1)   FLAG: none
+  validate              67-93   time O(n*k)     aux space O(k)   FLAG: none
+                                                output O(n*k) worst case

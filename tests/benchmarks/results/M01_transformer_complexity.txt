@@ -1,0 +1,159 @@
+M01 complexity analysis
+Source file: tests/benchmarks/sample_jobs/small_project/transformer.py (55 lines)
+Flagged functions: none (no function is O(n^2) or worse)
+
+VARIABLES (used the same way in every section)
+  n = number of records passed to apply()
+  m = fields per record (keys per dict)
+  s = average string length of a field value
+  k = number of step names passed to apply() (len(steps))
+  R = number of registered transformations (len(_REGISTRY), here 3)
+
+FUNCTION INVENTORY (from ast.walk, FunctionDef and AsyncFunctionDef)
+  register         lines 14-19
+  decorator        lines 16-18 (nested inside register)
+  normalize_value  lines 23-30
+  strip_whitespace lines 34-36
+  add_flag         lines 40-44
+  apply            lines 47-55
+There are no async functions and no lambdas assigned to names. transformer.py imports only
+typing.Callable (line 8). It does not import any sibling module, so no sibling cost is added.
+
+----------------------------------------------------------------------------------------------
+1. register (lines 14-19)
+----------------------------------------------------------------------------------------------
+(1) Name and range: register, lines 14-19.
+(2) Time: O(1).
+(3) Space: O(1) auxiliary. Output: one closure object, O(1).
+(4) Reasoning:
+  - Line 16 defines the nested function decorator. This creates one closure object. Cost O(1).
+  - Line 19 returns it. No loop, no copy, no data-dependent work.
+  - The cost of registration happens inside decorator (see below), which runs once per decorated
+    function at import time, not per record.
+(5) Flag:
+FLAG: none
+(6) Alternative: not needed.
+
+----------------------------------------------------------------------------------------------
+1a. decorator (nested, lines 16-18)
+----------------------------------------------------------------------------------------------
+(1) Name and range: decorator, lines 16-18, nested in register.
+(2) Time: O(1) amortized. Hashing the name string is O(len(name)), which is a small constant here.
+(3) Space: O(1) auxiliary. It adds one entry to the module-level dict _REGISTRY, so the registry
+    grows by O(1) per registration (O(R) in total).
+(4) Reasoning:
+  - Line 17 is a single dict assignment: amortized O(1) insert.
+  - Line 18 returns fn unchanged. The function is not wrapped, so it adds no per-call overhead
+    to the decorated transformation.
+  - It runs 3 times at import (lines 22, 33, 39). It is never called while records are processed.
+(5) Flag:
+FLAG: none
+(6) Alternative: not needed.
+
+----------------------------------------------------------------------------------------------
+2. normalize_value (lines 23-30)
+----------------------------------------------------------------------------------------------
+(1) Name and range: normalize_value, lines 23-30.
+(2) Time: O(m + s) per record.
+(3) Space: O(1) auxiliary. Output: O(m) for the new dict (the output is the shallow copy).
+(4) Reasoning:
+  - Line 25: dict(record) is a shallow copy of m key/value pairs. Time O(m), space O(m). Values
+    are shared by reference, so strings are not copied.
+  - Line 27: out.get("value", 0) is an O(1) dict lookup. float() on a string parses it in O(s).
+    The assignment back into out is O(1).
+  - Lines 28-29: the except path sets 0.0 in O(1). A failed float() parse costs at most O(s).
+  - No loop over fields, no list membership test, no sort, no grouping.
+  - Total per record: O(m) copy + O(s) parse. Over n records in one pass: O(n(m + s)).
+(5) Flag:
+FLAG: none
+(6) Alternative: not needed.
+
+----------------------------------------------------------------------------------------------
+3. strip_whitespace (lines 34-36)
+----------------------------------------------------------------------------------------------
+(1) Name and range: strip_whitespace, lines 34-36.
+(2) Time: O(m * s) per record in the worst case.
+(3) Space: O(1) auxiliary. Output: O(m) for the new dict, plus up to O(m * s) for the new strings.
+(4) Reasoning:
+  - Line 36 is a dict comprehension that visits each of the m items once: O(m) iterations.
+  - For each item, isinstance is O(1). For a str value, v.strip() scans both ends and builds a
+    new string when whitespace is present: O(s) time and O(s) space for that string. CPython
+    returns the same object when there is nothing to strip, but the scan itself is still O(s)
+    in the worst case (a string made of whitespace).
+  - Non-string values are passed through by reference in O(1).
+  - Total per record: m fields times O(s) = O(m * s). Over n records in one pass: O(n * m * s).
+  - Linear in n. This is the most expensive of the three built-in steps, and the only one whose
+    output may hold new strings.
+(5) Flag:
+FLAG: none
+(6) Alternative: not needed.
+
+----------------------------------------------------------------------------------------------
+4. add_flag (lines 40-44)
+----------------------------------------------------------------------------------------------
+(1) Name and range: add_flag, lines 40-44.
+(2) Time: O(m + s) per record.
+(3) Space: O(1) auxiliary. Output: O(m) for the new dict (one extra key).
+(4) Reasoning:
+  - Line 42: dict(record) is a shallow copy of m pairs. Time O(m), space O(m).
+  - Line 43: out.get("value", 0) is O(1). float() on a string is O(s). The comparison > 100 and
+    the key assignment are O(1).
+  - No loop over fields, no membership test on a list, no sorting.
+  - float() has no try/except here, so a non-numeric value raises ValueError out of the whole
+    apply() call. This is a correctness note, not a complexity issue.
+  - Over n records in one pass: O(n(m + s)).
+(5) Flag:
+FLAG: none
+(6) Alternative: not needed.
+
+----------------------------------------------------------------------------------------------
+5. apply (lines 47-55)
+----------------------------------------------------------------------------------------------
+(1) Name and range: apply, lines 47-55.
+(2) Time: O(k * n * m * s) worst case (every step is strip_whitespace; step names may repeat).
+    If only the cheap steps run, it is O(k + n * k * (m + s)).
+    In general: O(k + sum over steps of n * cost(step)), with cost(step) from sections 2 to 4.
+    The result is linear in n and linear in k.
+(3) Space: auxiliary O(n + k), with a transient peak of O(n * m) (see below). Output: O(n * m)
+    for n new dicts, plus up to O(n * m * s) if strip_whitespace created new strings.
+(4) Reasoning:
+  - Line 49: a list comprehension over the k step names. Each test "s not in _REGISTRY" is a
+    dict membership test, O(1) on average. The membership test is against the dict, not a list,
+    so there is no O(k * R) scan. Time O(k), space O(k) for the unknown list in the worst case.
+  - Lines 50-51: raise on unknown names. O(k) to format the message.
+  - Line 52: list(records) copies the outer list only. Time O(n), space O(n). Record dicts are
+    shared with the caller until the first step replaces them.
+  - Line 53: loop over k steps.
+  - Line 54: for each step, a list comprehension over n records. Each iteration does one O(1)
+    dict lookup _REGISTRY[step] and one call to the transformation. Each call builds a fresh
+    dict of m pairs (sections 2 to 4), so one pass costs O(n * m) for copying plus the parse or
+    strip cost: O(n * m * s) for strip_whitespace, O(n * (m + s)) for the other two.
+  - The k passes are sequential, not nested over n. There is no pass that compares records to
+    each other, so the cost never becomes quadratic in n.
+  - Memory: the old list and the new list are both alive while a comprehension runs, so the
+    transient peak is about two generations of n dicts, which is O(n * m). The previous
+    generation is freed when result is rebound on line 54. For k = 0 the output is only the
+    O(n) list copy.
+  - No sorting, no deduplication, no grouping, no string building over all records.
+  - Cost of calls into other modules: none. No sibling module is imported.
+(5) Flag:
+FLAG: none
+(6) Alternative: not needed for complexity. Optional constant-factor note, not a flag: each step
+    makes a full dict copy per record, so k steps make k copies per record (O(k * n * m) in
+    copy work alone). Fusing the steps into one per-record loop would copy once:
+        out = dict(r)
+        for fn in fns: out = fn(out)   # fns would need to mutate in place
+    This would cut copy work from O(k * n * m) to O(n * m), but it changes the documented
+    contract that each transformation returns a copy, so it is not recommended without a test
+    change.
+
+----------------------------------------------------------------------------------------------
+SUMMARY TABLE
+----------------------------------------------------------------------------------------------
+  function          lines   time               aux space      output space        FLAG
+  register          14-19   O(1)               O(1)           O(1)                none
+  decorator         16-18   O(1) amortized     O(1)           O(1) per entry      none
+  normalize_value   23-30   O(m + s)           O(1)           O(m)                none
+  strip_whitespace  34-36   O(m * s)           O(1)           O(m + m * s)        none
+  add_flag          40-44   O(m + s)           O(1)           O(m)                none
+  apply             47-55   O(k*n*m*s) worst   O(n + k), peak O(n*m)  O(n*m + n*m*s)  none

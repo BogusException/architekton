@@ -1,0 +1,139 @@
+M01: Complexity analysis of reporter.py
+Source file : tests/benchmarks/sample_jobs/small_project/reporter.py (59 lines)
+Flagged functions (FLAG: O(n^2) or worse): none
+
+Function list was taken with ast (python3 -I -c, ast.walk over FunctionDef and AsyncFunctionDef).
+Result: 4 FunctionDef nodes (_text_lines, to_text, to_json, write). No AsyncFunctionDef, no nested
+functions, no lambdas assigned to names.
+
+VARIABLES (used in every section below)
+  n = number of records, that is len(report.results)
+  e = total number of failure messages over all records (sum of len(r.failures))
+  f = number of failed records (f <= n, and f <= e when every failed record has a message)
+  L = total length of the output string in characters
+  Note: L grows with n and e. L = O(n + e + total characters in record ids and messages).
+
+COST OF CALLS INTO OTHER MODULES
+  reporter.py imports only ValidationReport from validator.py (line 10), as a type annotation.
+  In validator.py, ValidationReport is a dataclass with fields total, passed, failed, results
+  (lines 55-60) and a property ok (lines 62-64) that evaluates self.failed == 0. RecordResult has
+  record_id, passed, failures (lines 48-52). Every attribute read and the ok property is O(1).
+  No validator function is called from reporter.py, so no validation cost is added here.
+  The stdlib calls are str.join, json.dumps, Path.write_text and print. Their costs are stated
+  in the sections that use them.
+
+======================================================================================
+1. _text_lines
+======================================================================================
+(1) Name and lines: _text_lines, lines 13-28.
+(2) Time: O(n + e + L). When failures exist this is O(L) in practice, because every record line
+    and message line adds to L. In terms of loop counts alone: O(n + e).
+(3) Space: auxiliary O(n + e) for the list of line strings (4 + 2 + f + e entries when the report failed, 4 when it passed).
+    Output needs: O(L) characters held in those strings. The strings are the output, so they are
+    counted as output space, not as auxiliary space.
+(4) Reasoning:
+    - Lines 14-19: build a list of 4 f-strings. Each reads report.ok (O(1) property),
+      report.total, report.passed, report.failed (O(1) attribute reads). O(1).
+    - Line 20: report.ok again, O(1).
+    - Lines 21-22: two list appends, O(1) each (amortised).
+    - Line 23: the outer loop runs once for each of the n records.
+    - Line 24: result.passed is an O(1) attribute test.
+    - Line 25: for each failed record, one append of an f-string. Cost is O(1 + len(record_id)).
+      Total over all failed records: O(f + characters in ids).
+    - Line 26: the inner loop runs over result.failures. It is not a nested loop over all n times
+      all e. The inner loop only visits the errors of the current record, so the sum of its
+      iterations over the whole outer loop is e (each error is visited once). The cost is
+      O(n + e), not O(n * e).
+    - Line 27: one append and one f-string per message, O(1 + len(msg)). Total O(e + message
+      characters).
+    - There are no membership tests on lists, no sorting, no string concatenation with += (it uses
+      list.append), and no json.dumps in this function.
+    - Passing records are scanned (line 24) but add no output. The function therefore does O(n)
+      work even when only a few records fail.
+    - Total: O(n + e) loop work plus the character work, which is bounded by L. The result is
+      O(n + e + L).
+(5) Flag:
+FLAG: none
+
+======================================================================================
+2. to_text
+======================================================================================
+(1) Name and lines: to_text, lines 31-32.
+(2) Time: O(n + e + L), that is O(L) when stated in output size.
+(3) Space: auxiliary O(n + e) for the list from _text_lines (the list of line strings is alive
+    during the join). Output needs: O(L) for the joined string.
+(4) Reasoning:
+    - Line 32 calls _text_lines (section 1): O(n + e + L).
+    - Line 32 then calls "\n".join(lines). str.join computes the total length in one pass and
+      allocates the result once, then copies each piece. Cost O(number of lines + L) = O(L).
+      This is the correct pattern. There is no repeated += on a string, which would copy the
+      growing string each time and could cost O(L * number_of_lines) in the worst case.
+    - No sorting, no membership test, no json.
+    - Total is dominated by _text_lines plus a linear join.
+(5) Flag:
+FLAG: none
+
+======================================================================================
+3. to_json
+======================================================================================
+(1) Name and lines: to_json, lines 35-50.
+(2) Time: O(n + e + L). The comprehension is O(n). json.dumps is O(n + e + L).
+(3) Space: auxiliary O(n) for the new list of n dicts built in the comprehension (lines 41-48).
+    The "failures" list of each record is not copied (line 45 stores a reference), so no extra O(e)
+    is allocated by the comprehension. json.dumps with indent builds a list of string chunks
+    internally and joins them, so it needs O(L) working space on top of the O(L) returned string.
+    Output needs: O(L) for the returned string.
+(4) Reasoning:
+    - Lines 36-40: dict literal with 4 O(1) attribute reads (report.ok is O(1)). O(1).
+    - Lines 41-48: one list comprehension over report.results, so n iterations. Each iteration
+      builds a small dict of 3 keys with O(1) attribute reads. Time O(n). No nested loop over
+      errors appears here, because r.failures is stored by reference and not iterated.
+    - Line 50: json.dumps(data, indent=2) walks the whole structure. It visits n record dicts and
+      e message strings and must escape each string, so the time is linear in the structure size
+      and in the characters: O(n + e + L). There is no quadratic behaviour. Through Python 3.13,
+      passing indent makes json use the pure Python encoder (_make_iterencode) instead of the C
+      accelerator, which raises the constant factor. From Python 3.14 the C encoder also handles
+      indent. The complexity is linear in both cases.
+    - Unlike to_text, to_json always emits every record, including passing records, so L is larger
+      for the same report. This is a size cost, not a complexity problem.
+    - No sorting (sort_keys is not set), no membership tests, no string += in a loop.
+    - Total: O(n + e + L).
+(5) Flag:
+FLAG: none
+
+======================================================================================
+4. write
+======================================================================================
+(1) Name and lines: write, lines 53-59.
+(2) Time: O(n + e + L) for building the content, plus O(L) for I/O, so O(n + e + L) overall.
+(3) Space: auxiliary O(n + e) from the called formatter (the line list or the dict list), plus the
+    json.dumps chunk buffer O(L) when fmt == "json". Output needs: O(L) for content.
+    Path.write_text may encode the string to bytes, which allocates another O(L) transiently.
+(4) Reasoning:
+    - Line 55: a conditional expression chooses to_json (section 3) or to_text (section 2).
+      Only one of them runs. Cost is O(n + e + L) either way. Any fmt other than "json" falls
+      back to text, so there is no extra branch cost.
+    - Lines 56-57: Path(dest) is O(len(dest)). write_text opens the file, encodes content, writes
+      it, and closes the file. Encoding and writing are O(L). The file system cost is outside the
+      Big-O model.
+    - Line 59: print(content, file=sys.stdout) writes L characters plus a newline. O(L).
+    - No loop, no membership test, no concatenation in this function body.
+    - Total: O(n + e + L).
+(5) Flag:
+FLAG: none
+
+======================================================================================
+SUMMARY TABLE
+======================================================================================
+  Function     Lines   Time             Auxiliary space   Output space   Flag
+  _text_lines  13-28   O(n + e + L)     O(n + e)          O(L)           none
+  to_text      31-32   O(n + e + L)     O(n + e)          O(L)           none
+  to_json      35-50   O(n + e + L)     O(n) + O(L) buf   O(L)           none
+  write        53-59   O(n + e + L)     O(n + e) + O(L)   O(L)           none
+
+No function is flagged, so no alternative implementation is needed. Two minor remarks that do not
+change the Big-O class:
+  - _text_lines scans all n records to find the f failed ones. If a report already kept a list of
+    failed records, the scan could be O(f + e). This would need a change in validator.py.
+  - On Python 3.13 and earlier, indent=2 disables the C encoder. Dropping indent would be faster
+    there, but it changes the output format, so it is not recommended without a reason.

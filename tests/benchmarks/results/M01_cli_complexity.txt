@@ -1,0 +1,173 @@
+COMPLEXITY ANALYSIS: tests/benchmarks/sample_jobs/small_project/cli.py
+
+Source file : tests/benchmarks/sample_jobs/small_project/cli.py (65 lines)
+Flagged functions: none. No function in cli.py is O(n^2) or worse.
+
+The AST scan (ast.walk over FunctionDef, AsyncFunctionDef and Lambda nodes) found exactly one
+function: main (lines 20-61). There are no async functions, no nested functions, no lambdas and
+no methods. The module-level entry point (lines 64-65) is an "if __name__ == '__main__'" guard
+that calls main(). It is not a function, so it is covered under main.
+
+======================================================================================
+VARIABLES (used consistently below)
+======================================================================================
+
+n = number of records in the input file
+m = fields per record (columns in the CSV, keys per JSON object)
+s = number of transformation steps given in --steps (default 3)
+k = number of validation rules given in --rules (default 3)
+L = maximum length of any single string field (treated as a bounded constant; it is kept
+    explicit where a per-field string operation is involved)
+B = size of the input file in bytes (B is about n * m * L for CSV)
+f = total number of rule failures across all records (0 <= f <= n * k)
+a = number of command-line arguments (small; independent of n)
+O = size of the rendered report in characters (O is about n + f for text and JSON when
+    failures exist; O is constant for a text report with no failures)
+
+======================================================================================
+FUNCTION 1 OF 1: main
+======================================================================================
+
+(1) Name and line range
+    main, cli.py lines 20-61 (called from the entry-point guard at lines 64-65).
+
+(2) Time complexity
+    O(B + s*n*m*L + n*k*L + O)
+    With L bounded by a constant and B = O(n*m), this simplifies to
+    O(n*m*(s + 1) + n*k + O), and since O <= n*(k + 1), to O(n*m*(s + 1) + n*k).
+    For the defaults (s = 3, k = 3) this is O(n*m).
+
+(3) Space complexity
+    Auxiliary (excluding the report that is produced): O(n*m).
+    Output (the ValidationReport and the rendered text): O(n + f) for the report object, and
+    O(O) for the rendered string, which is O(n + f).
+    Both are linear in the data; nothing grows faster than the input.
+
+(4) Reasoning, step by step
+
+    Lines 21-51 (argparse setup and parse_args):
+      Four add_argument calls and one parse_args. Cost depends only on a, the number of
+      command-line tokens, plus the fixed help text. The join on lines 30 and 37 touches 3
+      constant strings. Time O(a), space O(a). Negligible next to the data work.
+
+    Line 54, records = load(args.file), calls data_loader.load:
+      load (data_loader.py 38-45) dispatches on Path(path).suffix, O(1).
+      load_csv (data_loader.py 15-26): one csv.DictReader pass. The loop on lines 24-25 runs
+      n times, and each iteration builds dict(row), which copies m entries. Header check on
+      lines 20-23 is a set difference of m headers against 4 required columns, O(m). Time
+      O(n*m*L) because the csv module must scan every character, which is O(B). Space O(n*m)
+      for the list of n dicts.
+      load_json (data_loader.py 29-35): json.load parses the whole file, O(B) time, O(B)
+      space for the parsed structure, which is O(n*m). The isinstance check is O(1).
+      Combined cost of this line: time O(B) = O(n*m*L), space O(n*m).
+
+    Line 55, records = apply(records, args.steps), calls transformer.apply:
+      transformer.apply (transformer.py 47-55):
+        - Line 49 builds "unknown" with "s not in _REGISTRY". _REGISTRY is a dict, so each
+          membership test is O(1) average. Cost O(s).
+        - Line 52 list(records) is a shallow copy of n references, O(n) time and space.
+        - Lines 53-54 loop over s steps. Each step runs a list comprehension of n calls.
+          Per-call cost of the three built-in steps:
+            normalize_value  (transformer.py 23-30): dict(record) copies m entries, then one
+                              float() parse. O(m) time, O(m) space.
+            strip_whitespace (transformer.py 34-36): dict comprehension over m items, one
+                              str.strip per string field. O(m*L) time, O(m*L) space.
+            add_flag         (transformer.py 40-44): dict(record) copy plus one float(). O(m).
+          So one step costs O(n*m*L) time and builds a brand new list of n new dicts, O(n*m)
+          space. The previous generation of dicts becomes garbage when "result" is rebound,
+          so intermediate space across steps does not accumulate beyond one extra generation.
+        Combined cost: time O(s*n*m*L), space O(n*m) auxiliary (one new generation alive
+        while the old one is still referenced).
+      Note on peak memory: in main, the name "records" still points at the list returned by
+      load while apply runs, so the original generation, the generation being read, and the
+      generation being built can coexist. That is at most 3 copies of the data, still
+      O(n*m).
+
+    Line 56, report = validate(records, args.rules), calls validator.validate:
+      validator.validate (validator.py 67-93):
+        - Line 69 "active_rules = rules or list(_RULES)" is O(k).
+        - Line 70 "r not in _RULES" tests dict keys, O(1) each, O(k) total.
+        - Lines 75-80 are a nested loop: n records times k rules, so n*k rule calls. Each
+          built-in rule is O(L): has_id is O(1), value_non_negative does one float() parse
+          of a number or string, name_not_empty does str().strip() on one field. Failure
+          messages are appended to a per-record list (line 80); total appended items is f.
+        - Lines 81-85 build one RecordResult per record, O(1) each, n total.
+        - Line 87 "sum(1 for r in results if r.passed)" is one O(n) pass.
+        Combined cost: time O(n*k*L + f), and since f <= n*k this is O(n*k*L). Space O(n + f)
+        for the n RecordResult objects and the failure strings. This is output space of the
+        report; the auxiliary space beyond that is O(k).
+      The membership tests on line 70 are against a dict (_RULES), not a list, so they are
+      not a hidden O(k^2) pattern. The loop over rules is an intended n*k product, not
+      nested over the same collection.
+
+    Line 57, write(report, fmt=args.format, dest=args.output), calls reporter.write:
+      reporter.write (reporter.py 53-59) picks to_json or to_text, then writes once.
+        - to_text (reporter.py 31-32) calls _text_lines (reporter.py 13-28). The header is 4
+          constant lines. When the report failed, the loop on lines 23-27 visits all n
+          results and, for each failing record, appends one line per failure. Total work is
+          O(n + f). lines.append is amortised O(1). "\n".join on line 32 is a single pass,
+          O(O). There is no string concatenation inside a loop, so no hidden O(n^2) from
+          repeated "+=".
+        - to_json (reporter.py 35-50) builds one dict per record in a list comprehension,
+          O(n + f) time and space, then json.dumps with indent=2 serialises it in O(O).
+        - I/O: Path(dest).write_text(content) or print(content) is one write of O(O) bytes.
+      Combined cost: time O(n + f) = O(n*k) worst case, space O(n + f) for the rendered
+      string (the 'lines' list plus the joined string, or the dict plus the JSON string).
+
+    Line 58, sys.exit(0 if report.ok else 1):
+      report.ok is a property comparing an int to 0, O(1). sys.exit raises SystemExit,
+      O(1).
+
+    Lines 59-61 (except block):
+      Runs only on ValueError or FileNotFoundError. One f-string and one print to stderr,
+      O(length of the error message). Error messages from validate and apply list unknown
+      names (O(s) or O(k) characters), so this is O(a) in the worst case.
+
+    Recursion: none. No function in the chain calls itself.
+    Sorting: the only sort is sorted(missing) at data_loader.py line 23, over at most 4
+    required column names, O(1), and only on the error path.
+
+    Dominant term: the s transformation passes over n records of m fields each. The load
+    pass and the validation pass are each a single sweep. Every stage is linear in n, so the
+    whole pipeline is linear in n.
+
+(5) Flag:
+FLAG: none
+
+(6) Alternatives for flagged functions
+    None needed, because main is not flagged.
+
+    Optional notes, not required by the flag rule. Both are constant-factor changes and do
+    not change the Big-O class:
+
+    a) apply() makes s separate passes and allocates s generations of n dicts. A single
+       pass that composes the steps per record cuts allocations from s*n dicts to n dicts
+       and lowers peak space. Time stays O(s*n*m*L). Sketch (a change to transformer.py,
+       not to cli.py, and not applied here):
+
+           def apply(records, steps):
+               fns = [_REGISTRY[s] for s in steps]          # O(s), after the unknown check
+               out = []
+               for r in records:                            # n iterations
+                   for fn in fns:                           # s calls, each O(m)
+                       r = fn(r)
+                   out.append(r)
+               return out
+
+    b) load_csv() and the pipeline hold the whole file in memory. If n becomes very large,
+       a generator pipeline (load -> apply -> validate) would reduce auxiliary space from
+       O(n*m) to O(m + k) plus the failure list. The report still needs O(n) result
+       objects unless only failures are stored. This changes the public API of the four
+       modules, so it is only worth doing if memory becomes a measured problem.
+
+======================================================================================
+NOTES ON SCOPE
+======================================================================================
+
+- Sibling modules data_loader.py, transformer.py, validator.py and reporter.py were read only
+  to price the calls made on lines 54-57 of cli.py. Their own functions were not analysed
+  as separate entries because the task covers functions defined in cli.py.
+- Costs assume CPython dict and set operations at O(1) average and amortised O(1) list
+  appends.
+- Field-length cost L is shown in the formulas so the string work (float parsing, strip,
+  csv scanning) is visible. In practice L is small and bounded.

@@ -1,0 +1,153 @@
+COMPLEXITY ANALYSIS: tests/benchmarks/sample_jobs/small_project/data_loader.py
+
+Flagged functions (FLAG: O(n^2) or worse): none. No function in this file is flagged.
+
+Method
+------
+Functions were enumerated with python3 and the ast module (FunctionDef and AsyncFunctionDef walk).
+Result: three functions, load_csv (15-26), load_json (29-35), load (38-45). There are no async
+functions, no nested functions and no lambdas assigned to names. The file imports only csv, json
+and pathlib from the standard library. It imports no sibling module, so no sibling file was
+needed to price a call. All callee costs below are those of the standard library.
+
+Variables (used the same way throughout)
+----------------------------------------
+n = number of records (CSV data rows, or elements of the top-level JSON array)
+m = fields per record (CSV columns, or keys per JSON object)
+b = input size in bytes. For tabular data, b is proportional to n*m.
+k = length of the path string passed in.
+Output size = the returned list of n records with m fields each, so O(n*m) space.
+
+Summary table
+-------------
+Function    Lines   Time              Aux space         Output space   FLAG
+load_csv    15-26   O(n*m) = O(b)     O(m)              O(n*m)         none
+load_json   29-35   O(n*m) = O(b)     O(b)              O(n*m)         none
+load        38-45   O(k) + callee     O(k) + callee     callee's       none
+
+1. load_csv
+-----------
+(1) Name and range: load_csv, lines 15-26.
+
+(2) Time: O(n*m), which is O(b).
+
+(3) Space: auxiliary O(m). Output O(n*m).
+
+(4) Reasoning:
+ - Line 18 opens the file and line 19 wraps it in csv.DictReader. The reader pulls one line at a
+   time from the file object, so the file is streamed. It is never read whole into memory.
+ - Line 20 reads reader.fieldnames. This consumes the header line (O(m)) and set() builds a set of
+   m names: O(m) time, O(m) space.
+ - Line 21 computes REQUIRED_COLUMNS - headers. REQUIRED_COLUMNS is a constant 4-element set, so
+   the difference costs O(4) = O(1) lookups into a hash set. Set membership is O(1), not a list
+   scan.
+ - Line 23 runs only on failure. sorted(missing) sorts at most 4 items: O(1).
+ - Lines 24-25 loop once over the n data rows. Each iteration parses one line (O(m) work, the line
+   length is proportional to m) and DictReader builds a dict of m entries. Line 25 then calls
+   dict(row), a second O(m) copy. DictReader already returns a fresh dict per row, so this copy
+   is redundant, but it only changes the constant factor. Only one extra row dict is alive at a
+   time, so it adds O(m) transient space, not O(n*m).
+ - Line 25 appends to a list. list.append is amortised O(1). There is no list membership test and
+   no string concatenation in a loop.
+ - Line 26 returns the list. Total time is O(m) + n * O(m) = O(n*m) = O(b).
+ - Auxiliary space is the header set, the reader's line buffer and one row: O(m). The returned
+   list holds all n rows: O(n*m), counted as output.
+
+(5) Flag:
+FLAG: none
+
+(6) Alternative: not applicable (not flagged).
+
+Memory note: time is linear, and the file itself is streamed. The function still materialises
+every row in the list, so peak memory is O(n*m). If a caller only needs one pass, a generator
+removes this:
+
+    def iter_csv(path):
+        with open(path, newline="") as fh:
+            reader = csv.DictReader(fh)
+            missing = REQUIRED_COLUMNS - set(reader.fieldnames or [])
+            if missing:
+                raise ValueError(f"CSV missing required columns: {sorted(missing)}")
+            yield from reader
+
+Peak space becomes O(m), time stays O(n*m). The generator drops the redundant dict(row) copy. One
+behaviour change: the missing-column check runs on the first next() call, not at call time.
+
+2. load_json
+------------
+(1) Name and range: load_json, lines 29-35.
+
+(2) Time: O(n*m), which is O(b).
+
+(3) Space: auxiliary O(b). Output O(n*m).
+
+(4) Reasoning:
+ - Line 31 opens the file. Line 32 calls json.load(fh). In CPython, json.load is implemented as
+   json.loads(fh.read()). fh.read() copies the whole file into one string of b characters
+   (O(b) time, O(b) space). The file is not streamed.
+ - json.loads then scans that string once and builds the Python objects: O(b) time, and O(n*m)
+   space for the parsed result. For tabular data b is proportional to n*m, so time is O(n*m).
+ - The raw string is freed when json.load returns, but at the peak the raw text and the parsed
+   objects coexist. Peak space is O(b) + O(n*m) = O(b) in terms of the input size. Because Python
+   objects are much larger than their JSON text, the parsed part often dominates the constant.
+ - Line 33 isinstance check is O(1). Line 34 builds an error string of constant size (only on
+   failure).
+ - Line 35 returns the parsed list as is. There is no copy. The function does not check that each
+   element is a dict. That is a correctness gap, not a cost issue.
+ - There is no loop in this function, no list membership test and no string concatenation in a
+   loop.
+
+(5) Flag:
+FLAG: none
+
+(6) Alternative: not applicable (not flagged).
+
+Memory note: time is linear, but the whole file is loaded into memory as text and then parsed.
+Streaming alternatives:
+ - Store the data as JSON Lines (one object per line) and read it with a line loop:
+
+       def iter_jsonl(path):
+           with open(path) as fh:
+               for line in fh:
+                   if line.strip():
+                       yield json.loads(line)
+
+   Peak space is O(m) plus the longest line. Time stays O(n*m).
+ - For a single large JSON array, keep the format and use an incremental parser such as the
+   third-party ijson package (ijson.items(fh, "item")). This breaks the project rule of stdlib
+   only, so it fits an optional path, not the hot path.
+
+3. load
+-------
+(1) Name and range: load, lines 38-45.
+
+(2) Time: O(k) own cost. Including the callee that it dispatches to, total time is O(n*m) = O(b).
+
+(3) Space: auxiliary O(k) own cost. Output and callee space are those of load_csv or load_json.
+
+(4) Reasoning:
+ - Line 40 builds a Path from the string: O(k) time and space for the parsed path parts.
+ - Lines 41 and 43 compare p.suffix to a literal. p.suffix is a short string slice: O(k) at worst,
+   treated as O(1) for real paths.
+ - Line 42 or line 44 delegates once to load_csv or load_json. It adds one call and no copy. The
+   returned list is passed straight through. The cost of the call is exactly that of the callee
+   (items 1 and 2 above).
+ - Line 45 raises for other suffixes: O(1) work, no I/O.
+ - There is no loop and no data-dependent work in this function itself.
+ - Note: the suffix check is case-sensitive, so "DATA.CSV" is rejected. This is a correctness
+   point, not a cost point.
+
+(5) Flag:
+FLAG: none
+
+(6) Alternative: not applicable (not flagged).
+
+Memory note: load inherits the memory behaviour of the callee. A CSV path is streamed in but
+fully materialised in the output list. A JSON path is read whole into memory as text. If streaming
+variants iter_csv and iter_jsonl are added, load can dispatch to them with the same O(1) overhead.
+
+Whole-module conclusion
+-----------------------
+Every code path is linear in the input size. There is no nested loop, no list membership test, no
+repeated string concatenation and no repeated file read. The only memory concern is that all three
+paths return a fully built list, and load_json also holds the whole raw file text at its peak.
