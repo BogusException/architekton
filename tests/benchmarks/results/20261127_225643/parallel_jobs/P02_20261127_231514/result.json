@@ -1,0 +1,81 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/parallel_jobs/P02_20261127_231514/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 86000,
+  "speedup": 0.17,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 254.65,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T04:15:47.492918+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:17:12.740510+00:00",
+        "project": "small_project",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:17:22.617758+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 7,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:18:28.640161+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 14,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:18:46.997493+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:19:27.442227+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 106000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 42.25,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T04:20:09.799078+00:00",
+        "project": "results",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 20000
+  },
+  "id": "P02",
+  "name": "Parallel file summaries (2 workers, haiku)",
+  "category": "parallel_jobs",
+  "cost_note": "$0.02-0.08"
+}

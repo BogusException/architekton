@@ -1,0 +1,12 @@
+{
+  "status": "pass",
+  "elapsed_s": 0.08,
+  "selected_model": "sonnet",
+  "expected": "sonnet",
+  "stdout": "{\"score\": 0.35, \"tier\": \"sonnet\", \"recommended_model\": \"sonnet\"}\n",
+  "stderr": "",
+  "id": "C04",
+  "name": "Data analysis task",
+  "category": "classification",
+  "cost_note": "Free (no session started)"
+}

@@ -1,0 +1,89 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/math_computation/M01_20261128_001411/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 66000,
+  "speedup": 0.31,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 300.29,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:15:08.920252+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 2,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:16:05.349932+00:00",
+        "project": "small_project",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:16:07.795310+00:00",
+        "project": "results",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:16:11.869152+00:00",
+        "project": "small_project",
+        "model": "sonnet",
+        "turns": 5,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:16:13.823153+00:00",
+        "project": "small_project",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:16:55.918403+00:00",
+        "project": "small_project",
+        "model": "sonnet",
+        "turns": 5,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:19:08.314974+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 17,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 94000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 93.9,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:20:43.838498+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 14,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 28000
+  },
+  "id": "M01",
+  "name": "Parallel Big-O complexity analysis",
+  "category": "math_computation",
+  "cost_note": "$0.03-0.10 (architekton) | $0.05-0.15 (plain)"
+}

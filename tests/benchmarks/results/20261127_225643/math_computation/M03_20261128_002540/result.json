@@ -1,0 +1,89 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/math_computation/M03_20261128_002540/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 78000,
+  "speedup": 0.37,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 352.39,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:26:26.896746+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:27:06.542508+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:27:33.106250+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 5,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:27:57.168156+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:28:11.561432+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:28:20.690786+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:31:31.733535+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 104000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 128.96,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:33:40.698090+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 13,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 26000
+  },
+  "id": "M03",
+  "name": "Parallel performance bottleneck analysis",
+  "category": "math_computation",
+  "cost_note": "$0.04-0.15 (architekton) | $0.06-0.20 (plain)"
+}

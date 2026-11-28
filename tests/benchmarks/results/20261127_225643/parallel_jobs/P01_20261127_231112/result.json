@@ -1,0 +1,81 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/parallel_jobs/P01_20261127_231112/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 98000,
+  "speedup": 0.15,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 209.74,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T04:11:43.913116+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:12:51.044950+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:12:52.453831+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:13:02.131992+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:13:12.810210+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 12,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:14:40.591902+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 14,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 110000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 32.27,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T04:15:12.859120+00:00",
+        "project": "benchmarks",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 12000
+  },
+  "id": "P01",
+  "name": "Parallel file summaries (auto config)",
+  "category": "parallel_jobs",
+  "cost_note": "$0.02-0.08 (architekton) | $0.05-0.15 (plain)"
+}

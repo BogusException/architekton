@@ -26,6 +26,7 @@ secrets/
 tests/benchmarks/results/*/
 !tests/benchmarks/results/20261127_215806/
 !tests/benchmarks/results/20261127_221126/
+!tests/benchmarks/results/20261127_225643/
 
 # Loose plain-mode output files written to results root during benchmarks
 tests/benchmarks/results/P01_*.txt

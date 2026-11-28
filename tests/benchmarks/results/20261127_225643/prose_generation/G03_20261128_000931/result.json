@@ -1,0 +1,89 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/prose_generation/G03_20261128_000931/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 112000,
+  "speedup": 0.12,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 250.06,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:10:23.222848+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:11:24.535392+00:00",
+        "project": "small_project",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:11:27.651882+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:11:30.531143+00:00",
+        "project": "results",
+        "model": "sonnet",
+        "turns": 7,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:11:35.985775+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:12:49.644180+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 11,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:13:40.262660+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 12,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 122000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 29.4,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:14:09.567320+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 5,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 10000
+  },
+  "id": "G03",
+  "name": "Parallel architecture docs per module",
+  "category": "prose_generation",
+  "cost_note": "$0.05-0.15 (architekton) | $0.08-0.25 (plain)"
+}

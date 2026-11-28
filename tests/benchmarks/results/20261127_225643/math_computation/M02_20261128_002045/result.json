@@ -1,0 +1,89 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/math_computation/M02_20261128_002045/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 90000,
+  "speedup": 0.13,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 261.66,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:21:37.014591+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:22:56.902346+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:22:57.198745+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 7,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:23:04.494345+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 7,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:23:09.838381+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:24:20.031211+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 7,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:25:05.321782+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 102000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 33.75,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:25:39.335576+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 12000
+  },
+  "id": "M02",
+  "name": "Parallel unit test generation",
+  "category": "math_computation",
+  "cost_note": "$0.04-0.12 (architekton) | $0.06-0.20 (plain)"
+}

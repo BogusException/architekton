@@ -2,13 +2,12 @@
 
 ## In Progress
 
-- [ ] Smoke test: verify `architekton-warn` mod fires correctly on Claude Code 2.1.332
-
 ### Pre-release deploy checklist
 - [x] `scripts/preflight.py` -- pre/post-install verification (prerequisites, hooks, skills, mod, import smoke test)
 - [x] `docs/windows.md` -- WSL2 requirements and known issues
-- [ ] `gh auth login` + `git push github main` -- publish to GitHub
+- [x] `gh auth login` + `git push github main` -- published; pushing to both remotes regularly since Nov 27
 - [x] Client install on target machine: installed on beanie (2026-11-26), `scripts/preflight.py --post` all checks passed on Claude Code 2.1.332
+- [x] Smoke test: `architekton-warn` exits 0 silently on match, emits hook JSON on mismatch -- verified Nov 27
 
 ## Backlog
 
@@ -41,11 +40,17 @@
 - [x] `/goal` skill: already at user scope (`~/.claude/skills/goal/`), no install needed
 - [x] `tests/test_orchestrator.py` + `tests/test_runner.py` -- 37 new tests
 
-### Phase 4 -- advanced features (priority order)
+### Phase 4 -- advanced features (deferred; not needed for release)
 - [ ] `advisor.py set-model <model>` -- convenience wrapper for editing global config
 - [ ] Model ladder -- Stop hook detects tool_use_error, bumps recommended tier
 - [ ] Budget mode with graceful degradation -- daily_usd + warn_pct config keys
 - [ ] Complexity momentum -- session state file, last N prompt scores
+
+### Phase 6 -- benchmark expansion (in progress Nov 27)
+- [x] Per-run `README.md` generator -- schema docs auto-written alongside report.md
+- [x] Token estimation in job `result.json` -- chars/4 from output.log + journal turns
+- [ ] Full benchmark suite run -- all categories, `--mode both`
+- [ ] `baseline_model` field in journal entries + `advisor.py report --savings`
 
 ### Phase 5 -- polish (all complete as of Nov 2026)
 - [x] `scripts/uninstall.sh` -- clean reversal of all install steps

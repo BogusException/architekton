@@ -1,0 +1,73 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/filesystem_mapping/F02_20261128_003735/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 92000,
+  "speedup": 0.17,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 418.11,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:38:13.178084+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 2,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:39:33.546358+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:39:37.223134+00:00",
+        "project": "small_project",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:40:03.881142+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 14,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:44:30.940071+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 17,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 104000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 70.23,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:45:42.808365+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 12000
+  },
+  "id": "F02",
+  "name": "Cross-file function call graph",
+  "category": "filesystem_mapping",
+  "cost_note": "$0.03-0.10 (architekton) | $0.03-0.10 (plain)"
+}

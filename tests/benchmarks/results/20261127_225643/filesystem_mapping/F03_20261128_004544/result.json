@@ -1,0 +1,89 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/filesystem_mapping/F03_20261128_004544/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 138000,
+  "speedup": 0.3,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 291.02,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:46:36.184092+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:48:00.464228+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 16,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:48:05.226916+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 17,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:48:09.388180+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 12,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:48:11.820188+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:49:11.586235+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 11,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:50:33.768755+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 156000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 88.71,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:52:02.521228+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 18000
+  },
+  "id": "F03",
+  "name": "Dead code and unused symbol detection",
+  "category": "filesystem_mapping",
+  "cost_note": "$0.03-0.10 (architekton) | $0.03-0.10 (plain)"
+}

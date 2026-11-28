@@ -1,0 +1,89 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/single_session/S02_20261127_225818/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 68000,
+  "speedup": 0.29,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 252.49,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T03:58:52.545953+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T03:59:39.352783+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T03:59:42.683129+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T03:59:46.285319+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T03:59:51.712955+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 5,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:00:27.446074+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 5,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:02:29.821462+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 13,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 88000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 72.87,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T04:03:42.635077+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 20000
+  },
+  "id": "S02",
+  "name": "Code review of small project",
+  "category": "single_session",
+  "cost_note": "$0.01-0.05"
+}

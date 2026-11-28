@@ -1,0 +1,65 @@
+{
+  "status": "fail",
+  "log": "results/20261127_225643/single_session/S03_20261127_230344/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 140000,
+  "speedup": 0.09,
+  "architekton": {
+    "exit_code": 1,
+    "elapsed_s": 411.97,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T04:04:25.397785+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:05:31.708060+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 7,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:05:34.492409+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:07:33.044515+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 59,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 156000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 36.23,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T04:11:10.994243+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 16000
+  },
+  "id": "S03",
+  "name": "Design extension for small project",
+  "category": "single_session",
+  "cost_note": "$0.02-0.10"
+}

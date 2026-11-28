@@ -1,0 +1,89 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/prose_generation/G02_20261128_000539/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 106000,
+  "speedup": 0.19,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 194.87,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:06:27.139072+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:07:20.504389+00:00",
+        "project": "results",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:07:22.050342+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 7,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:07:24.569044+00:00",
+        "project": "results",
+        "model": "sonnet",
+        "turns": 12,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:07:32.274205+00:00",
+        "project": "results",
+        "model": "sonnet",
+        "turns": 11,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:08:20.076482+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 11,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:08:53.146363+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 7,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 120000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 37.01,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:09:30.165766+00:00",
+        "project": "benchmarks",
+        "model": "sonnet",
+        "turns": 7,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 14000
+  },
+  "id": "G02",
+  "name": "Parallel plain-English module explanations",
+  "category": "prose_generation",
+  "cost_note": "$0.02-0.08 (architekton) | $0.04-0.12 (plain)"
+}

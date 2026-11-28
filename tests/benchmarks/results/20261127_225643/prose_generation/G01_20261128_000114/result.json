@@ -1,0 +1,89 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/prose_generation/G01_20261128_000114/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 148000,
+  "speedup": 0.14,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 233.84,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:01:51.722224+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 2,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:02:31.085565+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:02:40.304543+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:02:47.163017+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 10,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:03:02.427273+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 14,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:03:30.327625+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T05:05:04.762274+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 30,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 158000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 31.74,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T05:05:38.320190+00:00",
+        "project": "benchmarks",
+        "model": "sonnet",
+        "turns": 5,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 10000
+  },
+  "id": "G01",
+  "name": "Parallel docstrings (auto config)",
+  "category": "prose_generation",
+  "cost_note": "$0.03-0.10 (architekton) | $0.05-0.15 (plain)"
+}

@@ -1,0 +1,49 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/single_session/S01_20261127_225643/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 10000,
+  "speedup": 0.45,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 65.58,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T03:57:05.917329+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 2,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T03:57:48.074464+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 20000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 29.19,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T03:58:17.184673+00:00",
+        "project": "small_project",
+        "model": "sonnet",
+        "turns": 5,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 10000
+  },
+  "id": "S01",
+  "name": "List and describe files",
+  "category": "single_session",
+  "cost_note": "< $0.01"
+}

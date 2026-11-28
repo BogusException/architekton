@@ -1,0 +1,89 @@
+{
+  "status": "pass",
+  "log": "results/20261127_225643/thinking_levels/T02_20261127_233759/output.log",
+  "token_note": "token counts estimated from journal turn counts (turns * 2000)",
+  "overhead_tokens": 230000,
+  "speedup": 0.17,
+  "architekton": {
+    "exit_code": 0,
+    "elapsed_s": 184.44,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T04:38:28.065749+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 3,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:39:51.413108+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:39:59.729245+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 70,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:40:01.345679+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:40:04.529487+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 14,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:40:07.671135+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 9,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      },
+      {
+        "date": "2026-11-28T04:41:02.267328+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 8,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "ark_total_tokens": 242000
+  },
+  "plain": {
+    "exit_code": 0,
+    "elapsed_s": 32.03,
+    "journal_entries": [
+      {
+        "date": "2026-11-28T04:41:34.312218+00:00",
+        "project": "arkitekton",
+        "model": "sonnet",
+        "turns": 6,
+        "heavy_prompts": 0,
+        "light_prompts": 0
+      }
+    ],
+    "plain_tokens": 12000
+  },
+  "id": "T02",
+  "name": "Thinking=med (sonnet default)",
+  "category": "thinking_levels",
+  "cost_note": "$0.05-0.15"
+}
